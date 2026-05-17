@@ -1,0 +1,82 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  color: #fff;
+  font-family: "Noto Sans JP", "Yu Gothic UI", sans-serif;
+  overflow: hidden;
+  user-select: none;
+  cursor: default;
+}
+
+/* UI 本体は vmin (viewport 短辺%) で OverlayPlugin ウィンドウサイズに自動フィット。
+   サイズや位置を調整したい時は OverlayPlugin の「背景を白にする」にチェックを入れて
+   表示エリアを見える状態にしてから、Width/Height/X/Y の数値入力 (あるいはドラッグ)
+   で調整 → 終わったら背景チェックを外す、という運用。 */
+
+#countdown {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.countdown-wrap {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2.5vmin;
+  padding: 4vmin;
+}
+
+.countdown-label {
+  font-size: 7vmin;
+  font-weight: bold;
+  letter-spacing: 0.08em;
+  color: #f4e6c4;
+  text-shadow: 0 0 0.3em #000, 0.05em 0.05em 0 #000;
+  opacity: 0.85;
+}
+
+.countdown-number {
+  font-family: 'Cinzel', 'Trajan Pro', 'YuMincho', '游明朝', 'Hiragino Mincho ProN', 'Times New Roman', serif;
+  font-weight: 900;
+  font-size: 60vmin;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: #ffd56b;
+  text-shadow:
+    -0.02em -0.02em 0 #2a130a, -0.01em -0.02em 0 #2a130a, 0 -0.02em 0 #2a130a, 0.01em -0.02em 0 #2a130a, 0.02em -0.02em 0 #2a130a,
+    -0.02em -0.01em 0 #2a130a, 0.02em -0.01em 0 #2a130a,
+    -0.02em  0     0 #2a130a, 0.02em  0     0 #2a130a,
+    -0.02em  0.01em 0 #2a130a, 0.02em  0.01em 0 #2a130a,
+    -0.02em  0.02em 0 #2a130a, -0.01em 0.02em 0 #2a130a, 0 0.02em 0 #2a130a, 0.01em 0.02em 0 #2a130a, 0.02em 0.02em 0 #2a130a,
+    0 0.03em 0.08em rgba(0, 0, 0, 0.9),
+    0 0 0.14em rgba(255, 180, 80, 0.45);
+}
+
+.countdown-number.pulse { animation: countdown-pulse 0.22s ease-out; }
+@keyframes countdown-pulse {
+  0%   { opacity: 0.85; }
+  100% { opacity: 1.0; }
+}
+
+.countdown-ticks {
+  display: flex;
+  gap: 0.8vmin;
+}
+
+.countdown-tick {
+  width: 2vmin;
+  height: 2vmin;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 220, 150, 0.4);
+}
+
+.countdown-tick.elapsed { background: rgba(255, 220, 150, 0.85); }
