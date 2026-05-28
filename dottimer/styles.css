@@ -1,0 +1,123 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  color: #fff;
+  font-family: "Noto Sans JP", "Yu Gothic UI", sans-serif;
+  overflow: hidden;
+  user-select: none;
+  cursor: default;
+}
+
+/* サイズ・位置は OverlayPlugin の「背景を白にする」で表示エリアを見える状態にしてから
+   Width/Height/X/Y で合わせて、終わったらチェックを外す運用 (countdown と同じ)。
+   小さなオーバーレイ窓でも読めるよう、フォントは max(px, vmin) で下限を確保する。 */
+
+#dottimer {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 1.4vmin;
+  padding: 2vmin;
+  pointer-events: none;
+  z-index: 10;
+}
+body.debug #dottimer { padding-top: 24px; }  /* デバッグバナーぶんの余白 (debug=true 時だけ) */
+
+.dot-row {
+  background: rgba(10, 18, 24, 0.55);
+  border: 0.25vmin solid rgba(120, 220, 200, 0.45);
+  border-radius: 1.2vmin;
+  padding: 1.2vmin 1.6vmin;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9vmin;
+  text-shadow: 0 0 0.3em #000, 0.04em 0.04em 0 #000;
+}
+
+.dot-info { display: flex; align-items: baseline; gap: 0.8vmin; }
+
+.dot-name {
+  font-size: max(16px, 4.6vmin);
+  font-weight: bold;
+  color: #bff7e6;
+  letter-spacing: 0.02em;
+}
+.dot-target {
+  flex: 1 1 auto;
+  font-size: max(11px, 3vmin);
+  color: #cdd6dc;
+  opacity: 0.85;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.dot-time {
+  font-family: 'Cinzel', 'Trajan Pro', 'Times New Roman', serif;
+  font-variant-numeric: tabular-nums;
+  font-size: max(22px, 6vmin);
+  font-weight: 900;
+  color: #ffe7a8;
+  line-height: 1;
+}
+
+.dot-bar {
+  width: 100%;
+  height: max(6px, 1.8vmin);
+  border-radius: 0.9vmin;
+  background: rgba(255, 255, 255, 0.14);
+  overflow: hidden;
+}
+.dot-bar-fill {
+  height: 100%; width: 100%;
+  border-radius: 0.9vmin;
+  background: linear-gradient(90deg, #36d6a6, #79f0c8);
+  transition: width 0.12s linear;
+}
+
+/* 残り 5 秒: 赤くして点滅 + 音 (JS) */
+.dot-row.alert {
+  border-color: rgba(255, 110, 90, 0.95);
+  animation: dot-alert 0.55s ease-in-out infinite alternate;
+}
+.dot-row.alert .dot-time { color: #ff7a5c; }
+.dot-row.alert .dot-bar-fill { background: linear-gradient(90deg, #ff5a44, #ffb199); }
+
+@keyframes dot-alert {
+  0%   { background: rgba(60, 12, 8, 0.55);  box-shadow: 0 0 0 rgba(255, 90, 68, 0); }
+  100% { background: rgba(120, 24, 16, 0.78); box-shadow: 0 0 2.2vmin rgba(255, 90, 68, 0.65); }
+}
+
+/* 上部の診断バナー (CONFIG.debug=true のとき表示)。動いているかの確認用 */
+#dot-debug {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  background: rgba(0, 0, 0, 0.78);
+  color: #9fe;
+  font: 12px/1.5 'Consolas', 'Cascadia Mono', monospace;
+  padding: 3px 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  z-index: 20;
+  border-bottom: 1px solid #2a4a4a;
+}
+
+/* 自キャラ検出状況 (隅) */
+#dot-status {
+  position: fixed;
+  left: 6px;
+  bottom: 4px;
+  font-size: max(11px, 2.2vmin);
+  pointer-events: none;
+  z-index: 5;
+  text-shadow: 0 0 0.3em #000;
+}
+#dot-status.ok   { color: #8fe6c2; opacity: 0.75; }
+#dot-status.warn { color: #ffd36b; opacity: 0.95; }
