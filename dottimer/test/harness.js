@@ -67,6 +67,8 @@ global.window.Overlay = {
 
 require(path.join(__dirname, '..', 'src', 'dottimer.js'));
 const O = global.window.Overlay;
+// テスト 2 で自キャラ確定を可視化される文字列で観測するため、ハーネス側で showStatus を有効化
+O.dottimer._config.showStatus = true;
 O.dottimer.init();
 
 function tick() {

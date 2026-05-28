@@ -48,7 +48,7 @@
     soundFile:   '',
     soundVolume: 0.7,   // 0.0 - 1.0
 
-    showStatus:  true,
+    showStatus:  false,  // 左下の「● 自キャラ名」表示。切り分け時だけ true に
 
     // ★トラブルシュート用★
     // 戦闘中にオーバーレイを起動すると ChangePrimaryPlayer/02 のいずれも来ないことがあるので、
