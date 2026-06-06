@@ -138,5 +138,29 @@ emitLog(`26|t|C24|エウクラシア・ドシスIII|30.00|${SELF_ID}|${SELF_NAME
 tick();
 check('追跡 1 件', rowCount() === 1);
 
+console.log('11) 自キャラが死亡(25) → 全 DoT クリア (全滅リセット)');
+// 別の敵にも DoT を追加して、全部消えることを確認
+emitLog(`26|t|74F|ディア|30.00|${SELF_ID}|${SELF_NAME}|${ENEMY_B_ID}|${ENEMY_B_NAME}|00|1|2|h`);
+tick();
+check('追跡 2 件 (前段確認)', rowCount() === 2);
+emitLog(`25|t|${SELF_ID}|${SELF_NAME}|40009999|敵|h`);
+tick();
+check('自キャラ死亡で全クリア', rowCount() === 0);
+
+console.log('12) 04 RemoveCombatant (敵 despawn) → その対象の DoT が消える');
+emitLog(`26|t|74F|ディア|30.00|${SELF_ID}|${SELF_NAME}|${ENEMY_A_ID}|${ENEMY_A_NAME}|00|1|2|h`);
+emitLog(`26|t|74F|ディア|30.00|${SELF_ID}|${SELF_NAME}|${ENEMY_B_ID}|${ENEMY_B_NAME}|00|1|2|h`);
+tick();
+check('追跡 2 件 (前段)', rowCount() === 2);
+emitLog(`04|t|${ENEMY_A_ID}|${ENEMY_A_NAME}|...`);
+tick();
+check('despawn された敵の DoT のみ消える', rowCount() === 1);
+
+console.log('13) 260 InCombat 1→0 (戦闘終了) → 全 DoT クリア');
+emitLog(`260|t|1|1|0|0|h`);  // まず戦闘中状態に
+emitLog(`260|t|0|0|0|0|h`);  // 戦闘終了
+tick();
+check('戦闘終了で全クリア', rowCount() === 0);
+
 console.log(`\n結果: ${pass} pass / ${fail} fail`);
 process.exit(fail ? 1 : 0);

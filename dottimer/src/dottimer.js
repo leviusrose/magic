@@ -4,7 +4,11 @@
 //   02 ChangePrimaryPlayer : 02|t|<自キャラID hex>|<名前>          → 自キャラ確定
 //   26 NetworkBuff (付与)   : 26|t|<statusId hex>|<名>|<秒>|<srcId>|<src名>|<tgtId>|<tgt名>|...
 //   30 NetworkBuff (消失)   : 26 と同フォーマット。秒が 0.00。早期に消えた時のクリア用
-//   25 NetworkDeath         : 25|t|<死亡ID>|<名>|<killerID>|<名>  → 対象が死んだら消去
+//   25 NetworkDeath         : 25|t|<死亡ID>|<名>|<killerID>|<名>
+//                              - 対象敵が死亡 → その DoT を削除
+//                              - 自キャラが死亡 → 全 DoT クリア (全滅/即死リセット)
+//   04 RemoveCombatant      : 04|t|<id>|<name>|... ボス despawn (wipe/撃破) → 対象 DoT 削除
+//   260 InCombat (OP拡張)   : 260|t|<inGame>|<inACT>|... 戦闘終了 (1→0) → 全 DoT クリア
 //
 //   ★注意: 26/30 は「ソースが先、ターゲットが後」(ffxiv/LOG_FORMAT.md は逆だが、実ログで確認)。
 //
@@ -70,6 +74,7 @@
   var ownId = null;
   var ownName = null;
   var tracked = {};
+  var lastInCombat = null;  // 260 InCombat の前回値 (1→0 遷移検出用)
   var diag = { logLines: 0, cpps: 0, recentCodes: [], booted: false, mode: '?' };
 
   function init() {
@@ -119,10 +124,12 @@
     }
     if (ownId == null) tryBootstrapByHint(L);
     switch (L[0]) {
-      case '02': setOwn(L[2], L[3]); break;
-      case '26': onStatusAdd(L);     break;
-      case '30': onStatusRemove(L);  break;
-      case '25': onDeath(L);         break;
+      case '02':  setOwn(L[2], L[3]);     break;
+      case '26':  onStatusAdd(L);         break;
+      case '30':  onStatusRemove(L);      break;
+      case '25':  onDeath(L);             break;
+      case '04':  onRemoveCombatant(L);   break;
+      case '260': onCombatFlag(L);        break;
     }
   }
 
@@ -172,9 +179,42 @@
 
   function onDeath(L) {
     var deadId = normId(L[2]);
-    for (var k in tracked) {
+    if (ownId && deadId === ownId) {   // 自分が倒された → 全リセット (全滅/即死)
+      clearAll();
+      return;
+    }
+    for (var k in tracked) {           // 対象敵が死亡 → その DoT だけ削除
       if (tracked.hasOwnProperty(k) && k.split('|')[1] === deadId) remove(k);
     }
+  }
+
+  // 04 RemoveCombatant: wipe で敵がフィールドから despawn された時など。
+  // 対象 ID にぶら下がっている DoT を全部消す。
+  function onRemoveCombatant(L) {
+    var id = normId(L[2]);
+    if (!id) return;
+    for (var k in tracked) {
+      if (tracked.hasOwnProperty(k) && k.split('|')[1] === id) remove(k);
+    }
+  }
+
+  // 260 InCombat: field 2 が in-game combat フラグ (0/1)。
+  // 1 → 0 の遷移 = 戦闘終了。残っている DoT を全クリア。
+  function onCombatFlag(L) {
+    var v = L[2];
+    if (lastInCombat === '1' && v === '0') clearAll();
+    lastInCombat = v;
+  }
+
+  function clearAll() {
+    for (var k in tracked) {
+      if (!tracked.hasOwnProperty(k)) continue;
+      var entry = tracked[k];
+      if (entry.el && entry.el.wrap && entry.el.wrap.parentNode) {
+        entry.el.wrap.parentNode.removeChild(entry.el.wrap);
+      }
+    }
+    tracked = {};
   }
 
   // ---- 表示要素 ----
