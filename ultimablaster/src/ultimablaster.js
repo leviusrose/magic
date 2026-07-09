@@ -343,21 +343,8 @@
       ctx.fillText(w.label, wp.x, wp.y);
     });
 
-    // 1 回目の突入先(D) 矢印
-    if (state.D != null) {
-      var d = pt(cx, cy, RA * 0.98, state.D);
-      ctx.strokeStyle = '#ff6d6d'; ctx.lineWidth = 4;
-      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(d.x, d.y); ctx.stroke();
-      // 矢じり
-      var da = state.D * Math.PI / 180;
-      drawArrowHead(ctx, d.x, d.y, da, C * 0.03, '#ff6d6d');
-      var dl = pt(cx, cy, RA * 0.72, state.D);
-      ctx.fillStyle = '#ffb3b3'; ctx.font = '800 ' + Math.round(C * 0.035) + 'px sans-serif';
-      ctx.fillText('1回目', dl.x, dl.y);
-    }
-
-    // 回転方向アーク
-    if (state.rot) drawRotationArc(ctx, cx, cy, RA * 0.86, state.rot);
+    // ※ 1回目の突入先(D)・回転方向は内部計算にのみ使い、画面には出さない
+    //   (「どこに行けばいいか」だけを見せるため)。
 
     // ボス中心
     ctx.beginPath(); ctx.arc(cx, cy, C * 0.05, 0, Math.PI * 2);
@@ -397,23 +384,6 @@
     renderDebug();
   }
 
-  function drawArrowHead(ctx, x, y, ang, size, color) {
-    ctx.save(); ctx.translate(x, y); ctx.rotate(ang);
-    ctx.fillStyle = color; ctx.beginPath();
-    ctx.moveTo(0, -size); ctx.lineTo(size * 0.7, size * 0.7); ctx.lineTo(-size * 0.7, size * 0.7);
-    ctx.closePath(); ctx.fill(); ctx.restore();
-  }
-
-  function drawRotationArc(ctx, cx, cy, r, rot) {
-    var start = -Math.PI / 2, end = start + (rot === 'CW' ? 1 : -1) * Math.PI * 0.9;
-    ctx.strokeStyle = 'rgba(140,220,255,0.75)'; ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.arc(cx, cy, r, Math.min(start, end), Math.max(start, end), false); ctx.stroke();
-    var tipAng = end;
-    var tx = cx + r * Math.cos(tipAng), ty = cy + r * Math.sin(tipAng);
-    var tang = tipAng + (rot === 'CW' ? 1 : -1) * Math.PI / 2 + Math.PI / 2;
-    drawArrowHead(ctx, tx, ty, tang, r * 0.14, 'rgba(140,220,255,0.9)');
-  }
-
   function updateHud() {
     if (!els.head) return;
     if (!isLive()) {
@@ -422,14 +392,11 @@
       els.self.textContent = ''; els.self.className = 'ub-self';
       return;
     }
-    // 1 行目: 1 回目の突入先(マーカー) + 回転
-    var parts = [];
-    if (state.D != null) parts.push('1回目→' + waymarkAt(state.D) + '(' + wind8(state.D) + ')');
-    if (state.rot) parts.push(state.rot === 'CW' ? '時計回り' : '反時計回り');
-    els.head.textContent = parts.length ? parts.join('  ／  ') : '突入を観察中…';
-    els.head.className = 'ub-head ' + (state.rot === 'CW' ? 'cw' : state.rot === 'CCW' ? 'ccw' : '');
+    // 1回目の突入先・回転は出さない。行き先だけ表示。
+    els.head.textContent = '';
+    els.head.className = 'ub-head';
 
-    // 2 行目: 自分の番号と行き先(マーカー間)
+    // 自分の番号と行き先(マーカー間)
     if (state.D != null && state.s != null && state.selfNumber != null) {
       var a = diceAngle(state.selfNumber);
       els.self.textContent = 'あなた ' + state.selfNumber + '番 → ' + betweenWaymarks(a) + ' の間';
