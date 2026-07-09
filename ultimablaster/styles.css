@@ -1,0 +1,90 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  color: #fff;
+  font-family: "Noto Sans JP", "Yu Gothic UI", sans-serif;
+  overflow: hidden;
+  user-select: none;
+  cursor: default;
+}
+
+/* サイズ・位置は OverlayPlugin の「背景を白にする」で表示エリアを見える状態にしてから
+   Width/Height/X/Y で合わせて、終わったらチェックを外す運用 (dottimer / missing と同じ)。 */
+
+#ub {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6vmin;
+  padding: 1vmin;
+  pointer-events: none;
+}
+body.debug #ub { padding-top: 22px; }
+
+/* ミニ図 (メイン) — 正方形を維持しつつ枠に収める */
+#ub-arena {
+  flex: 0 1 auto;
+  width: min(86vmin, 92vw);
+  height: min(86vmin, 92vw);
+  max-height: 80%;
+  aspect-ratio: 1 / 1;
+}
+
+/* テキスト HUD */
+#ub-hud {
+  width: 100%;
+  text-align: center;
+  text-shadow: 0 0 0.35em #000, 0.04em 0.04em 0 #000;
+  line-height: 1.25;
+}
+
+.ub-head {
+  font-family: 'Cinzel', 'Trajan Pro', 'Times New Roman', serif;
+  font-variant-numeric: tabular-nums;
+  font-size: max(14px, 3.4vmin);
+  font-weight: 800;
+  color: #cfe0f5;
+  letter-spacing: 0.02em;
+}
+.ub-head.cw  { color: #8cdcff; }
+.ub-head.ccw { color: #ffcf8c; }
+
+.ub-self {
+  margin-top: 0.4vmin;
+  font-size: max(18px, 4.8vmin);
+  font-weight: 900;
+  min-height: 1em;
+  color: #ffe7a8;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.ub-self.show { opacity: 1; animation: self-pulse 0.8s ease-in-out infinite alternate; }
+.ub-self.dim  { opacity: 0.7; color: #b9c6dc; font-size: max(14px, 3.4vmin); font-weight: 700; }
+
+@keyframes self-pulse {
+  0%   { text-shadow: 0 0 0.35em #000; }
+  100% { text-shadow: 0 0 0.35em #000, 0 0 1.4vmin #ffe783; }
+}
+
+/* 上部の診断バナー (CONFIG.debug=true) */
+#ub-debug {
+  position: fixed; top: 0; left: 0; right: 0;
+  background: rgba(0,0,0,0.78); color: #9fe;
+  font: 11px/1.5 'Consolas','Cascadia Mono',monospace;
+  padding: 2px 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  pointer-events: none; z-index: 20; border-bottom: 1px solid #2a4a4a;
+}
+
+/* 自キャラ検出状況 */
+#ub-status {
+  position: fixed; left: 6px; bottom: 4px;
+  font-size: max(11px, 2.2vmin); pointer-events: none; z-index: 5;
+  text-shadow: 0 0 0.3em #000;
+}
+#ub-status.ok   { color: #8fe6c2; opacity: 0.75; }
+#ub-status.warn { color: #ffd36b; opacity: 0.95; }

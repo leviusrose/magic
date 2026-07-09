@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>アルテマブラスター リプレイテスター</title>
+<link rel="stylesheet" href="../styles.css">
+<style>
+  html,body{ background:#0b1220; }
+  body{ margin:0; color:#cdddf2; font-family:"Segoe UI",system-ui,"Noto Sans JP",sans-serif;
+    display:flex; gap:18px; padding:18px; flex-wrap:wrap; align-items:flex-start; }
+  /* オーバーレイの position:fixed をこのステージ枠に閉じ込める */
+  .stage{ position:relative; width:min(72vh,560px); aspect-ratio:1; flex:none;
+    background:#05090f; border:1px solid #283a54; border-radius:14px; overflow:hidden; }
+  #ub{ position:absolute !important; inset:0 !important; }
+  #ub-debug{ position:absolute !important; }
+  #ub-status{ position:absolute !important; }
+  /* styles.css は canvas を vmin 基準にするので、ステージ枠内に収まるよう上書き */
+  .stage #ub-arena{ width:92% !important; height:auto !important; max-height:82% !important; }
+  .panel{ flex:1; min-width:280px; max-width:420px; display:flex; flex-direction:column; gap:16px; }
+  h1{ font-size:18px; margin:0; font-weight:800; }
+  .card{ background:#111d2e; border:1px solid #283a54; border-radius:12px; padding:14px; }
+  .card h2{ font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:#8298b4; margin:0 0 10px; }
+  .row{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  button, select{ font:inherit; font-weight:700; color:#cdddf2; background:#18273b;
+    border:1px solid #283a54; border-radius:9px; padding:9px 12px; cursor:pointer; }
+  button:hover{ border-color:#ff6d6d; }
+  button.primary{ background:#ff6d6d; border-color:#ff6d6d; color:#1a0e0e; }
+  button.go{ background:#8cdcff; border-color:#8cdcff; color:#04121a; }
+  label{ font-size:13px; color:#8298b4; }
+  .hint{ font-size:12.5px; color:#5f758f; line-height:1.55; }
+  .status{ font-size:13px; color:#8cdcff; min-height:1.2em; font-variant-numeric:tabular-nums; }
+  ul.bursts{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:6px; max-height:190px; overflow:auto; }
+  ul.bursts li{ display:flex; justify-content:space-between; gap:8px; align-items:center;
+    background:#0d1726; border:1px solid #243550; border-radius:8px; padding:6px 10px; font-size:13px; }
+  ul.bursts button{ padding:5px 10px; font-size:12px; }
+  input[type=file]{ font-size:12px; color:#8298b4; }
+</style>
+</head>
+<body>
+  <!-- === オーバーレイ本体（index.html と同じ DOM） === -->
+  <div class="stage">
+    <div id="ub-debug" style="display:none">booting…</div>
+    <div id="ub">
+      <canvas id="ub-arena" width="360" height="360"></canvas>
+      <div id="ub-hud">
+        <div id="ub-head" class="ub-head">アルテマブラスター待機</div>
+        <div id="ub-self" class="ub-self"></div>
+      </div>
+    </div>
+    <div id="ub-status"></div>
+  </div>
+
+  <div class="panel">
+    <h1>🎲 リプレイテスター</h1>
+
+    <div class="card">
+      <h2>内蔵シナリオ（ゲーム不要）</h2>
+      <div class="row">
+        <button class="primary" data-scn="cw">東発・時計回り（自分3番）</button>
+        <button class="primary" data-scn="ccw">西発・反時計（自分5番）</button>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <label>速度</label>
+        <select id="speed"><option value="3">3倍（速い）</option><option value="1">等速（実戦テンポ）</option><option value="8">8倍</option></select>
+        <button id="stop">停止/リセット</button>
+      </div>
+      <div class="status" id="scnStatus"></div>
+    </div>
+
+    <div class="card">
+      <h2>実ログを再生（ゲーム不要）</h2>
+      <div class="row"><input type="file" id="file" accept=".log,.txt"></div>
+      <div class="hint">ACT の Network_30203_*.log（例: %USERPROFILE%\act\logs\ 内）を選ぶと、その日のアルテマブラスターを検出します（大きいファイルは読み込みに数秒）。</div>
+      <div id="loadStatus" class="status"></div>
+      <div class="row" id="selfRow" style="display:none; margin-top:6px">
+        <label>自分</label><select id="selfSel"></select>
+      </div>
+      <ul class="bursts" id="burstList"></ul>
+    </div>
+
+    <div class="card hint">
+      本体（<code>src/api.js / ultimablaster.js</code>）をそのまま読み込んで再生します。
+      左図が実戦と同じ挙動：突入1〜2回目で <b>1回目の突入先</b>と<b>回転</b>が確定し全8スポット描画、
+      約10秒後の番号付与で自分の丸が黄色に。上部に <code>debug</code> 情報も表示。
+    </div>
+  </div>
+
+  <!-- OverlayPluginApi を stub して legacy モードで即起動させる（10秒待ちを回避） -->
+  <script>
+    window.OverlayPluginApi = { callHandler: function (j, cb) { if (cb) cb('null'); } };
+  </script>
+  <script src="../src/api.js"></script>
+  <script src="../src/ultimablaster.js"></script>
+  <script>
+  (function () {
+    'use strict';
+    var O = window.Overlay;
+    O.ultima._config.debug = true;
+    O.ultima._config.showStatus = true;
+    O.ultima._config.sound = false;   // テスト中はうるさいので無音（実戦は true）
+    O.ultima.init();
+    O.api.start();
+
+    function dispatch(arr) { window.dispatchOverlayEvent({ type: 'LogLine', line: arr }); }
+    function setSelf(id, name) { window.dispatchOverlayEvent({ type: 'ChangePrimaryPlayer', charID: parseInt(id, 16), charName: name || 'You' }); }
+    function resetOverlay() { dispatch(['260', 't', '1']); dispatch(['260', 't', '0']); }
+
+    var timers = [];
+    function clearTimers() { timers.forEach(clearTimeout); timers = []; }
+    function schedule(ms, fn) { timers.push(setTimeout(fn, ms)); }
+    function speed() { return parseFloat(document.getElementById('speed').value) || 3; }
+
+    // ---- 実ログ形式の行ビルダー ----
+    var SELF = '10AA0001';
+    var EDGE = { N:[100,80], NE:[114.14,85.86], E:[120,100], SE:[114.14,114.14],
+                 S:[100,120], SW:[85.86,114.14], W:[80,100], NW:[85.86,85.86] };
+    function bae3(clone, dir) {
+      var e = EDGE[dir];
+      return ['22','t',clone,'ケフカ','BAE3','アルテマブラスター',SELF,'You',
+        '750603','1000','1B','BAE38000','0','0','0','0','0','0','0','0','0','0','0','0',
+        '200000','200000','10000','10000','','','90.00','90.00','0.00','0.00',
+        '9415000','9415000','10000','10000','','',e[0].toFixed(2),e[1].toFixed(2),'0.00','0.00','000014CF'];
+    }
+    function hm(icon) { return ['27','t',SELF,'You','0000','0000',icon,SELF,'0000','0000']; }
+
+    // ---- 内蔵シナリオ ----
+    var SCN = {
+      cw:  { order:['W','NW','N','NE','E','SE','S','SW'], clones:['40002CE5','40002CE4','40002CE3','40002CE2','40002CE1','40002CE0','40002CDF','40002CDE'], icon:'0152', n:3, label:'東発・時計回り' },
+      ccw: { order:['E','NE','N','NW','W','SW','S','SE'], clones:['40004165','40004164','40004163','40004162','40004161','40004160','4000415F','4000415E'], icon:'01B5', n:5, label:'西発・反時計' }
+    };
+    function playScenario(key) {
+      stopAll();
+      var scn = SCN[key], sp = speed(), st = document.getElementById('scnStatus');
+      resetOverlay(); setSelf(SELF, 'You');
+      st.textContent = scn.label + ' 再生中…（突入は 2 秒間隔）';
+      scn.order.forEach(function (dir, i) {
+        schedule(i * 2000 / sp, function () { dispatch(bae3(scn.clones[i], dir)); });
+      });
+      // 番号付与：突入開始 ~10 秒後
+      schedule(10000 / sp, function () { dispatch(hm(scn.icon)); st.textContent = scn.label + '：番号 ' + scn.n + '番 付与'; });
+      schedule(16000 / sp, function () { st.textContent = scn.label + '：完了（そのまま表示）'; });
+    }
+
+    document.querySelectorAll('[data-scn]').forEach(function (b) {
+      b.onclick = function () { playScenario(b.dataset.scn); };
+    });
+    document.getElementById('stop').onclick = function () { stopAll(); document.getElementById('scnStatus').textContent = 'リセット'; };
+    function stopAll() { clearTimers(); resetOverlay(); }
+
+    // ---- 実ログの読み込み（ストリーム解析でメモリ節約） ----
+    function tsec(ts) {
+      try { var t = ts.split('T')[1]; return (+t.slice(0,2))*3600 + (+t.slice(3,5))*60 + parseFloat(t.slice(6).split('+')[0].split('-')[0]); }
+      catch (e) { return -1; }
+    }
+    var loaded = null; // {lines:[{t,arr}], players:{}}
+    document.getElementById('file').onchange = async function (e) {
+      var file = e.target.files[0]; if (!file) return;
+      var ls = document.getElementById('loadStatus');
+      ls.textContent = '読み込み中…';
+      var lines = [], players = {};
+      try {
+        var reader = file.stream().pipeThrough(new TextDecoderStream('utf-8')).getReader();
+        var buf = '';
+        while (true) {
+          var r = await reader.read(); if (r.done) break;
+          buf += r.value; var idx;
+          while ((idx = buf.indexOf('\n')) >= 0) {
+            var line = buf.slice(0, idx); buf = buf.slice(idx + 1);
+            keepLine(line, lines, players);
+          }
+        }
+        if (buf) keepLine(buf, lines, players);
+      } catch (err) {
+        // stream 未対応ブラウザのフォールバック
+        var text = await file.text();
+        text.split('\n').forEach(function (l) { keepLine(l, lines, players); });
+      }
+      loaded = { lines: lines, players: players };
+      buildBurstList(lines, ls);
+    };
+
+    function keepLine(line, lines, players) {
+      var p = line.split('|'); if (p.length < 5) return;
+      var c = p[0];
+      if (c === '22' && p[4] === 'BAE3') { lines.push({ t: tsec(p[1]), arr: p }); }
+      else if (c === '21' && p[4] === 'BAE4') { lines.push({ t: tsec(p[1]), arr: p }); }
+      else if (c === '27' && (p[6] || '').length === 4 && O.ultima._config.diceIconMap[(p[6]||'').toUpperCase()] != null) {
+        lines.push({ t: tsec(p[1]), arr: p }); if (/^10/.test(p[2])) players[p[2]] = p[3];
+      } else if (c === '02') { lines.push({ t: tsec(p[1]), arr: p }); }
+    }
+
+    function buildBurstList(lines, ls) {
+      // BAE3 の最初のヒット時刻でバーストをクラスタ
+      var b3 = lines.filter(function (x) { return x.arr[0] === '22'; });
+      var bursts = [];
+      b3.forEach(function (x) {
+        if (bursts.length && (x.t - bursts[bursts.length-1].last) < 60) bursts[bursts.length-1].last = x.t;
+        else bursts.push({ t0: x.t, last: x.t });
+      });
+      ls.textContent = 'アルテマブラスター ' + bursts.length + ' 回 検出';
+      // self ドロップダウン
+      var sel = document.getElementById('selfSel'); sel.innerHTML = '';
+      Object.keys(loaded.players).forEach(function (id) {
+        var o = document.createElement('option'); o.value = id; o.textContent = loaded.players[id]; sel.appendChild(o);
+      });
+      document.getElementById('selfRow').style.display = Object.keys(loaded.players).length ? 'flex' : 'none';
+      // リスト
+      var ul = document.getElementById('burstList'); ul.innerHTML = '';
+      bursts.forEach(function (b, i) {
+        var li = document.createElement('li');
+        var lbl = document.createElement('span'); lbl.textContent = '#' + (i+1) + '  ' + fmt(b.t0);
+        var btn = document.createElement('button'); btn.className = 'go'; btn.textContent = '再生';
+        btn.onclick = function () { playLog(b.t0); };
+        li.appendChild(lbl); li.appendChild(btn); ul.appendChild(li);
+      });
+    }
+    function fmt(sec) { var h=Math.floor(sec/3600), m=Math.floor(sec%3600/60), s=Math.floor(sec%60);
+      return (h%24)+':' + ('0'+m).slice(-2) + ':' + ('0'+s).slice(-2); }
+
+    function playLog(t0) {
+      if (!loaded) return;
+      stopAll();
+      var sp = speed(), start = t0 - 3, endT = t0 + 28;
+      var sel = document.getElementById('selfSel');
+      var selfId = sel && sel.value;
+      var selfName = selfId ? loaded.players[selfId] : null;
+      if (selfId) setSelf(selfId, selfName);
+      var st = document.getElementById('loadStatus');
+      st.textContent = '再生中 ' + fmt(t0) + (selfId ? '（自分=' + selfName + '）' : '');
+      var win = loaded.lines.filter(function (x) { return x.t >= start && x.t <= endT; })
+        .sort(function (a, b) { return a.t - b.t; });
+      win.forEach(function (x) {
+        schedule((x.t - start) * 1000 / sp, function () { window.dispatchOverlayEvent({ type: 'LogLine', line: x.arr }); });
+      });
+      schedule((endT - start) * 1000 / sp + 200, function () { st.textContent = '再生完了 ' + fmt(t0); });
+    }
+  })();
+  </script>
+</body>
+</html>
