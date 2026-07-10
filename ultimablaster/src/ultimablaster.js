@@ -209,24 +209,40 @@
 
     var srcId = L[2];
     if (state.chargeIds[srcId]) return;   // 同 clone は 8 人ヒット分の重複行あり → 初回のみ
-
-    var pos = srcPos(L);
-    if (!pos) return;
-    var dx = pos.x - CENTER.x, dy = pos.y - CENTER.y;
-    if (Math.sqrt(dx * dx + dy * dy) < CENTER_EPS) return;  // 突入途中(中心)は方角不定
     state.chargeIds[srcId] = true;
-    var dir = dirDeg(pos.x, pos.y);   // clone の湧いた方角(=突入元エッジ)
-    state.charges.push({ id: srcId, dir: dir });
 
-    // 1 個目のクリーン突入 → D(1 回目の突入先 = ソースの対角)
-    if (state.D == null) state.D = mod360(dir + 180);
-    // 2 個目 → 回転方向を確定 (中心スキップがあっても符号は不変)
-    if (state.rot == null && state.charges.length >= 2) {
-      var d = signedDiff(state.charges[0].dir, state.charges[1].dir);
-      state.rot = d > 0 ? 'CW' : 'CCW';
-      state.s = (state.rot === 'CW') ? -1 : 1;
-      maybeAlert();
+    // 突入途中(中心付近)のスナップは方角不明として dir=null にする。ただし「何本目の突入か」
+    // (インデックス)は必ず保持する — 1 本目が中心読みでも、後続のクリーン突入から逆算するため。
+    var dir = null;
+    var pos = srcPos(L);
+    if (pos) {
+      var dx = pos.x - CENTER.x, dy = pos.y - CENTER.y;
+      if (Math.sqrt(dx * dx + dy * dy) >= CENTER_EPS) dir = dirDeg(pos.x, pos.y);
     }
+    state.charges.push({ id: srcId, dir: dir });
+    solve();
+  }
+
+  // クリーンな突入 2 本から「1 本あたりの回転(±45°)」を求め、それで 1 本目(index0)の
+  // ソース方角を逆算する。D = その対角(1 回目の突入先)。1 本目が中心読みでも正しく出る。
+  function solve() {
+    var clean = [];
+    for (var i = 0; i < state.charges.length; i++) {
+      if (state.charges[i].dir != null) clean.push({ i: i, dir: state.charges[i].dir });
+    }
+    if (clean.length < 2) {
+      // クリーンが 1 本かつそれが 1 本目なら暫定 D(回転未確定なので位置はまだ描かない)
+      if (clean.length === 1 && clean[0].i === 0) state.D = mod360(clean[0].dir + 180);
+      return;
+    }
+    var a = clean[0], b = clean[1];
+    var per = signedDiff(a.dir, b.dir) / (b.i - a.i);   // 1 本あたりの回転量(≒ ±45)
+    var rotStep = per > 0 ? 45 : -45;                    // ソース方角の 1 本ごとの変化
+    state.rot = rotStep > 0 ? 'CW' : 'CCW';
+    state.s = (state.rot === 'CW') ? -1 : 1;             // 番号はケフカ回転と逆回りに増える
+    var src0 = mod360(a.dir - a.i * rotStep);            // 1 本目(index0)のソース方角を逆算
+    state.D = mod360(src0 + 180);                        // 1 回目の突入先
+    maybeAlert();
   }
 
   // 頭マーカー(サイコロ番号)
