@@ -95,10 +95,12 @@ emit(hm(SELF, '0152'));
 check('selfNumber = 3', st().selfNumber === 3, st().selfNumber);
 check('自分の行き先 = 337.5', near(O.ultima._diceAngle(st().selfNumber), 337.5));
 
-console.log('4) 中心付近の突入(途中スナップ)は方角不定として無視');
-const before = st().charges.length;
+console.log('4) 中心付近の突入(途中スナップ)は dir=null で記録し、解には影響しない');
+const dBefore = st().D;
 emit(charge('40002C00', 100, 100));  // 中心
-check('中心突入はカウントされない', st().charges.length === before, st().charges.length);
+tick();
+check('中心突入は dir=null で記録 (index 保持のため)', st().charges[st().charges.length - 1].dir == null, st().charges[st().charges.length - 1].dir);
+check('中心突入で D は変わらない', near(st().D, dBefore), st().D + ' vs ' + dBefore);
 
 console.log('5) resetAfterSec 経過後の新規突入で状態リセット → バースト1: 東発(突入先=西), 反時計回り');
 advance(31000);                        // 30s 超で idle
@@ -131,6 +133,17 @@ check('2 = 45(北東)', wm('2') === 45, wm('2'));
 check('3 = 135(南東)', wm('3') === 135, wm('3'));
 check('4 = 225(南西)', wm('4') === 225, wm('4'));
 check('A = 0 / B = 90 / C = 180 / D = 270 (十字は標準)', wm('A')===0&&wm('B')===90&&wm('C')===180&&wm('D')===270);
+
+console.log('9) 1本目が中心読み(突入途中)でも D を逆算する — 報告されたズレの修正');
+emit('260|t|0'); tick();                 // 戦闘終了でリセット
+// 1回目=北東(2マーカー方向)へ突入だが中心スナップ、反時計回り
+emit(charge('40009C00', 100, 100));      // 1本目: 中心読み(方角不明)
+emit(charge('40009C01', 100, 120));      // 2本目: 南エッジ(src S → dest 北)
+emit(charge('40009C02', 114.14, 114.14));// 3本目: 南東エッジ(src SE → dest 北西)
+check('D = 45 (北東 = 2マーカー方向)', near(st().D, 45), st().D);
+check('回転 = CCW', st().rot === 'CCW', st().rot);
+check('サイコロ1 = 67.5 (2とBの間) ← 以前は誤って22.5だった', near(O.ultima._diceAngle(1), 67.5), O.ultima._diceAngle(1));
+check('サイコロ2 = 112.5 (Bと3の間)', near(O.ultima._diceAngle(2), 112.5), O.ultima._diceAngle(2));
 
 console.log(`\n結果: ${pass} pass / ${fail} fail`);
 process.exit(fail ? 1 : 0);
