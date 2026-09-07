@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>FFXIV 絶ケフカ P4 ネオエクスデス&amp;カオス カンペ (2段)</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="dm-debug" style="display:none">booting…</div>
+
+  <div id="dm">
+    <!-- 今やること (1 行) -->
+    <div id="dm-now">
+      <span id="dm-now-main" class="idle">P4 待機</span>
+      <span id="dm-now-sub"></span>
+    </div>
+
+    <!-- 図 8 枚を時系列で 4 枚 × 2 段に。並びは固定で、終わったものは薄くなる -->
+    <div id="dm-grid"></div>
+  </div>
+
+  <div id="dm-status"></div>
+
+  <script src="src/api.js"></script>
+  <script src="src/draw.js"></script>
+  <script src="src/dmp4.js"></script>
+  <script src="src/main.js"></script>
+</body>
+</html>

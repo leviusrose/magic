@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>P4 カンペ 図サンプル (2段版)</title>
+<style>
+  html,body{ background:#0b1220; margin:0; color:#cdddf2;
+    font-family:"Segoe UI",system-ui,"Noto Sans JP",sans-serif; }
+  .wrap{ padding:20px 22px 40px; }
+  h1{ font-size:19px; margin:0 0 4px; font-weight:800; }
+  .lead{ font-size:13px; color:#5f758f; margin:0 0 20px; line-height:1.6; }
+  h2{ font-size:14px; letter-spacing:.06em; color:#cdddf2; margin:24px 0 3px;
+    border-top:1px solid #24344c; padding-top:13px; font-weight:800; }
+  .note{ font-size:12.5px; color:#5f758f; margin:0 0 11px; line-height:1.6; }
+  .strip{ display:flex; flex-wrap:wrap; gap:10px; }
+  .cell{ position:relative; background:#05090f; border:1px solid rgba(120,140,170,0.16);
+    border-radius:10px; padding:6px 6px 4px; }
+  /* 本体と同じ: 答えが出たカードは輪郭が黄色 */
+  .cell.ready{ border-color:#ffe783; }
+  .frame{ position:relative; width:132px; height:174px; }
+  .frame canvas{ display:block; width:100%; height:100%; }
+  .bar{ position:absolute; left:7%; right:7%; bottom:0.8%; height:3.2%; min-height:3px;
+    background:rgba(120,140,170,0.22); border-radius:2px; overflow:hidden; }
+  .bar i{ display:block; height:100%; background:#8fb2ff; border-radius:2px; }
+  .cell.ready .bar i{ background:#ffe783; }
+  .cap{ font-size:11.5px; color:#7f92ab; text-align:center; margin-top:2px; max-width:132px;
+    line-height:1.35; }
+  code{ color:#8cdcff; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🃏 P4 カンペ 図サンプル（2段版）</h1>
+  <p class="lead">
+    本体と同じ <code>../src/draw.js</code> をそのまま呼んで、①〜⑧ それぞれの図が取りうるパターンを
+    <b>実戦で出てくる順番どおり</b>に並べたもの。オーバーレイでは 上段 ①〜④ / 下段 ⑤〜⑧ の固定配置で並び、
+    処理が済んだ図は薄くなるだけで位置は動かない。各図の下のバーは解決までの進み具合で、
+    100% で着弾。
+    アリーナの表現（床・八方位の線・N・英字＝丸／数字＝四角のマーカー）は <code>magic/ultimablaster</code> と同じで、
+    <b>黄色いマーカーが自分の行き先</b>、小さい暗い点が全員の候補。
+    <b>カードの輪郭が黄色</b>になっているものは答えが確定した状態（枠なしはまだ待ち）。
+  </p>
+  <div id="out"></div>
+</div>
+
+<script src="../src/draw.js"></script>
+<script>
+(function () {
+  'use strict';
+  var D = window.Overlay.dmp4draw;
+  var WM = [
+    { label: 'A', angle: 0, color: '#ff5b5b' },
+    { label: '2', angle: 45, color: '#ffd23d' },
+    { label: 'B', angle: 90, color: '#ffd23d' },
+    { label: '3', angle: 135, color: '#4fc3ff' },
+    { label: 'C', angle: 180, color: '#4fc3ff' },
+    { label: '4', angle: 225, color: '#d17bff' },
+    { label: 'D', angle: 270, color: '#d17bff' },
+    { label: '1', angle: 315, color: '#ff5b5b' },
+  ];
+  // TH=北と西 / DPS=南と東。南北=3人頭割り、東西=1人受け。
+  var POS = { stack: { th: 0, dps: 180 }, spread: { th: [270], dps: [90] } };
+
+  var out = document.getElementById('out');
+  function section(title, note) {
+    var h = document.createElement('h2'); h.textContent = title; out.appendChild(h);
+    if (note) { var p = document.createElement('p'); p.className = 'note'; p.textContent = note; out.appendChild(p); }
+    var s = document.createElement('div'); s.className = 'strip'; out.appendChild(s);
+    return s;
+  }
+  function cell(strip, sc, label, cap, prog) {
+    var d = document.createElement('div'); d.className = 'cell' + (sc && sc.known ? ' ready' : '');
+    var frame = document.createElement('div'); frame.className = 'frame';
+    var cv = document.createElement('canvas'); cv.width = 266; cv.height = 350;
+    frame.appendChild(cv);
+    var bar = document.createElement('div'); bar.className = 'bar';
+    var fill = document.createElement('i');
+    fill.style.width = Math.round((prog == null ? 0.35 : prog) * 100) + '%';
+    bar.appendChild(fill); frame.appendChild(bar); d.appendChild(frame);
+    var c = document.createElement('div'); c.className = 'cap'; c.textContent = cap;
+    d.appendChild(c); strip.appendChild(d);
+    D.paint(cv.getContext('2d'), cv.width, cv.height, WM, sc, label);
+  }
+  // 雷水パネル 1 枚
+  function win(strip, title, role, action, bomb, cap) {
+    cell(strip, {
+      kind: 'window', stack: POS.stack, spread: POS.spread,
+      action: action, bomb: bomb, known: true,
+      myAngles: action === 'stack' ? [POS.stack[role]] : POS.spread[role],
+    }, { title: title, mine: true,
+      value: (action === 'stack' ? '頭割り' : '散開') + (bomb == null ? '' : (bomb ? ' 止' : ' 動')) }, cap);
+  }
+
+  // ---------- ① 無の氾濫 ----------
+  var s1 = section('① 無の氾濫',
+    '必要なのは「どっちの色に行くか」だけなので、左右に並べず 1 枚の色板で出す。'
+    + 'GC3 のデバフ（傷 と 死の超越/アラガンフィールド）が揃った時点で確定する: '
+    + '死の超越＝傷の色そのまま／アラガンフィールド＝逆の色。無の氾濫そのものの真偽では色は変わらない。'
+    + '左右も出したいときは CONFIG.showLaserSide = true。');
+  cell(s1, { kind: 'laser', color: 'white', dir: null, known: true },
+    { title: '① 無の氾濫', value: '紫', mine: true }, '紫の傷 + 死の超越 → 紫', 0.2);
+  cell(s1, { kind: 'laser', color: 'black', dir: null, known: true },
+    { title: '① 無の氾濫', value: '青', mine: true }, '青の傷 + 死の超越 → 青', 0.2);
+  cell(s1, { kind: 'laser', color: 'black', dir: null, known: true },
+    { title: '① 無の氾濫', value: '青', mine: true }, '紫の傷 + アラガンフィールド → 青（逆の色）', 0.5);
+  cell(s1, { kind: 'laser', color: 'white', dir: 'left', showSide: true, known: true },
+    { title: '① 無の氾濫', value: '紫 左', mine: true }, 'showLaserSide=true にすると左右も付く', 0.7);
+  cell(s1, { kind: 'laser', color: null, dir: null, known: false },
+    { title: '① 無の氾濫', value: '?' }, 'GC3 のデバフがまだ来ていない状態', 0.1);
+
+  // ---------- ② 早 雷水 ----------
+  var s2 = section('② 早 雷水',
+    'マップ基準。TH は 北(頭割り)と西(1人受け)、DPS は 南(頭割り)と東(1人受け)。'
+    + '黄色が自分の行き先で、小さい点が全員の候補。加速度爆弾の 止/動 は'
+    + '自分マーカーの中と一言の横（1 行）に出す。');
+  win(s2, '② 早 雷水', 'dps', 'spread', null, 'DPS・1人受け → 東');
+  win(s2, '② 早 雷水', 'dps', 'stack', null, 'DPS・頭割り → 南');
+  win(s2, '② 早 雷水', 'th', 'spread', null, 'TH・1人受け → 西');
+  win(s2, '② 早 雷水', 'th', 'stack', false, 'TH・頭割り → 北／加速度は嘘なので動く');
+  cell(s2, { kind: 'window', stack: POS.stack, spread: POS.spread,
+    action: null, bomb: null, known: false, myAngles: [] },
+    { title: '② 早 雷水', value: '?' }, 'まだデバフが来ていない状態', 0.1);
+
+  // ---------- ③ 視線1 ----------
+  var s3 = section('③ 視線1',
+    '視線持ちは真偽に関わらず中央へ。自分が持っていなければ外周の自分から矢印が出て、'
+    + '真なら外向き（見ない）・偽なら中央向き（見る）。');
+  cell(s3, { kind: 'gaze', truth: true, mine: false, known: true },
+    { title: '③ 視線1', value: '見ない' }, '真 → 外を向く（中央の2人を見ない）');
+  cell(s3, { kind: 'gaze', truth: false, mine: false, known: true },
+    { title: '③ 視線1', value: '見る' }, '偽 → 中央を見る');
+  cell(s3, { kind: 'gaze', truth: true, mine: true, known: true },
+    { title: '③ 視線1', value: '見ない', mine: true }, '自分が視線持ち → 中央へ行って外を向く');
+  cell(s3, { kind: 'gaze', truth: null, mine: false, known: false },
+    { title: '③ 視線1', value: '?' }, '未確定', 0.1);
+
+  // ---------- ④ 炎 ----------
+  var s4 = section('④ 炎（混沌の炎の着弾）',
+    '立ち位置は常に中央なので、出る範囲の形だけを見せる。混沌の炎は「真＝タケノコ（中央の小さい円範囲）」、'
+    + '「偽＝ドーナツ（外の輪が危険）」。');
+  cell(s4, { kind: 'chaos', bait: true, known: true, atCenter: true },
+    { title: '④ 炎', value: 'タケノコ' }, '真 → 中央の小さい円範囲');
+  cell(s4, { kind: 'chaos', bait: false, known: true, atCenter: true },
+    { title: '④ 炎', value: '中央' }, '偽 → ドーナツ');
+  cell(s4, { kind: 'chaos', bait: null, known: false, atCenter: true },
+    { title: '④ 炎', value: '?' }, 'カオスの真偽がまだ取れていない状態', 0.1);
+
+  // ---------- ⑤ 遅 雷水 ----------
+  var s5 = section('⑤ 遅 雷水',
+    '② と同じ図。早と遅で真偽が別なので答えも別々に出る（早=1人受け／遅=頭割り なども普通に起きる）。');
+  win(s5, '⑤ 遅 雷水', 'dps', 'stack', true, 'DPS・頭割り → 南／加速度は本当なので止まる');
+  win(s5, '⑤ 遅 雷水', 'dps', 'spread', false, 'DPS・1人受け → 東／加速度は嘘なので動く');
+  win(s5, '⑤ 遅 雷水', 'th', 'stack', null, 'TH・頭割り → 北');
+  win(s5, '⑤ 遅 雷水', 'th', 'spread', true, 'TH・1人受け → 西／止まる');
+
+  // ---------- ⑥ 視線2 ----------
+  var s6 = section('⑥ 視線2', '③ と同じ図。呪詛の叫声 69 秒のほう。');
+  cell(s6, { kind: 'gaze', truth: false, mine: false, known: true },
+    { title: '⑥ 視線2', value: '見る' }, '偽 → 中央を見る');
+  cell(s6, { kind: 'gaze', truth: true, mine: true, known: true },
+    { title: '⑥ 視線2', value: '見ない', mine: true }, '自分が視線持ち → 中央へ行って外を向く');
+
+  // ---------- ⑦ マジックアウト ----------
+  var s7 = section('⑦ マジックアウト（図ではなく真偽）',
+    'ここは位置ではなく真偽そのものが答えなので、図をやめて 扇 / 直線 を 踏む/踏まない の 2 行で出す。'
+    + 'マジックチャージの時点では答えが確定しないので「溜 扇真 / 溜 直偽」だけ仮表示（1枚目）。');
+  cell(s7, { kind: 'truth', ice: null, thunder: null, known: false, charged: { ice: true, thunder: false } },
+    { title: '⑦ マジックアウト', value: '?' }, 'チャージ済み（扇=真・直線=偽 を記憶）。答えはまだ', 0.15);
+  cell(s7, { kind: 'truth', ice: true, thunder: true, known: true },
+    { title: '⑦ マジックアウト', value: '両方踏まない' }, '扇も直線も本当 → どちらも踏まない');
+  cell(s7, { kind: 'truth', ice: false, thunder: true, known: true },
+    { title: '⑦ マジックアウト', value: '扇だけ踏む' }, '扇が嘘 → 扇だけ踏む（直線は踏まない）');
+  cell(s7, { kind: 'truth', ice: true, thunder: false, known: true },
+    { title: '⑦ マジックアウト', value: '直線だけ踏む' }, '直線が嘘 → 直線だけ踏む');
+  cell(s7, { kind: 'truth', ice: false, thunder: false, known: true },
+    { title: '⑦ マジックアウト', value: '両方踏む' }, '両方嘘 → 扇と直線の重なりを踏む');
+
+  // ---------- ⑧ つなみ ----------
+  var s8 = section('⑧ つなみ（混沌の水の着弾）',
+    '④ と同じ図だが真偽が逆。混沌の水は「真＝ドーナツ」、「偽＝タケノコ（中央の小さい円範囲）」。');
+  cell(s8, { kind: 'chaos', bait: false, known: true, atCenter: true },
+    { title: '⑧ つなみ', value: '中央' }, '真 → ドーナツ');
+  cell(s8, { kind: 'chaos', bait: true, known: true, atCenter: true },
+    { title: '⑧ つなみ', value: 'タケノコ' }, '偽 → 中央の小さい円範囲');
+})();
+</script>
+</body>
+</html>

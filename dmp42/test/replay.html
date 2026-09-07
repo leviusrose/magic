@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>P4 カンペ (2段) リプレイテスター</title>
+<link rel="stylesheet" href="../styles.css">
+<style>
+  html,body{ background:#0b1220; }
+  body{ margin:0; color:#cdddf2; font-family:"Segoe UI",system-ui,"Noto Sans JP",sans-serif;
+    display:flex; gap:18px; padding:18px; flex-wrap:wrap; align-items:flex-start; }
+  /* オーバーレイの position:fixed をこのステージ枠に閉じ込める */
+  .stage{ position:relative; width:420px; height:300px; flex:none;
+    background:#05090f; border:1px solid #283a54; border-radius:14px; overflow:hidden; }
+  #dm{ position:absolute !important; inset:0 !important; }
+  #dm-debug{ position:absolute !important; }
+  #dm-status{ position:absolute !important; }
+  .panel{ flex:1; min-width:300px; max-width:420px; display:flex; flex-direction:column; gap:16px; }
+  h1{ font-size:18px; margin:0; font-weight:800; }
+  .card{ background:#111d2e; border:1px solid #283a54; border-radius:12px; padding:14px; }
+  .card h2{ font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:#8298b4; margin:0 0 10px; }
+  .row{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  button, select{ font:inherit; font-weight:700; color:#cdddf2; background:#18273b;
+    border:1px solid #283a54; border-radius:9px; padding:9px 12px; cursor:pointer; }
+  button:hover{ border-color:#ff6d6d; }
+  button.primary{ background:#ff6d6d; border-color:#ff6d6d; color:#1a0e0e; }
+  button.go{ background:#8cdcff; border-color:#8cdcff; color:#04121a; }
+  label{ font-size:13px; color:#8298b4; }
+  .hint{ font-size:12.5px; color:#5f758f; line-height:1.55; }
+  .status{ font-size:13px; color:#8cdcff; min-height:1.2em; font-variant-numeric:tabular-nums; }
+  ul.bursts{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:6px; max-height:170px; overflow:auto; }
+  ul.bursts li{ display:flex; justify-content:space-between; gap:8px; align-items:center;
+    background:#0d1726; border:1px solid #243550; border-radius:8px; padding:6px 10px; font-size:13px; }
+  ul.bursts button{ padding:5px 10px; font-size:12px; }
+  input[type=file]{ font-size:12px; color:#8298b4; }
+</style>
+</head>
+<body>
+  <!-- === オーバーレイ本体（index.html と同じ DOM） === -->
+  <div class="stage">
+    <div id="dm-debug" style="display:none">booting…</div>
+    <div id="dm">
+      <div id="dm-now">
+        <span id="dm-now-main" class="idle">P4 待機</span>
+        <span id="dm-now-sub"></span>
+      </div>
+      <div id="dm-grid"></div>
+    </div>
+    <div id="dm-status"></div>
+  </div>
+
+  <div class="panel">
+    <h1>🃏 P4 リプレイテスター（2段版）</h1>
+
+    <div class="card">
+      <h2>内蔵シナリオ（ゲーム不要）</h2>
+      <div class="row">
+        <button class="primary" data-scn="a">早=1人受け / 遅=止まる / 視線2持ち</button>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <button class="primary" data-scn="b">早=頭割り / 視線1持ち</button>
+        <button class="primary" data-scn="c">デバフ薄め（頭割りのみ）</button>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <label>ロール</label>
+        <select id="role"><option value="dps">DPS</option><option value="th">TH</option></select>
+        <label>速度</label>
+        <select id="speed"><option value="4">4倍（速い）</option><option value="1">等速（実戦テンポ）</option><option value="10">10倍</option></select>
+        <button id="stop">停止/リセット</button>
+      </div>
+      <div class="status" id="scnStatus"></div>
+    </div>
+
+    <div class="card">
+      <h2>実ログを再生（ゲーム不要）</h2>
+      <div class="row"><input type="file" id="file" accept=".log,.txt"></div>
+      <div class="hint">ACT のネットログを選ぶと、おちょくりソウル（P4 開始）を自動検出します。大きいファイルは読み込みに数秒。</div>
+      <div id="loadStatus" class="status"></div>
+      <div class="row" id="selfRow" style="display:none; margin-top:6px">
+        <label>自分</label><select id="selfSel"></select>
+      </div>
+      <ul class="bursts" id="burstList"></ul>
+    </div>
+
+    <div class="card hint">
+      本体（<code>src/api.js / draw.js / dmp4.js</code>）をそのまま読み込んで再生します。
+      内蔵シナリオは cactbot のタイムライン（GC1→GC2→GC3→無の氾濫→マジックアウト）と
+      同じ間隔で ACT ログ相当の行を流すので、実戦と同じ順に図が埋まり、終わった図は薄くなります。
+    </div>
+  </div>
+
+  <!-- OverlayPluginApi を stub して legacy モードで即起動させる（10秒待ちを回避） -->
+  <script>
+    window.OverlayPluginApi = { callHandler: function (j, cb) { if (cb) cb('null'); } };
+  </script>
+  <script src="../src/api.js"></script>
+  <script src="../src/draw.js"></script>
+  <script src="../src/dmp4.js"></script>
+  <script>
+  (function () {
+    'use strict';
+    var O = window.Overlay;
+    O.dmp4._config.debug = true;
+    O.dmp4._config.showStatus = true;
+    O.dmp4._config.sound = false;   // テスト中はうるさいので無音（実戦は true）
+    O.dmp4.init();
+    O.api.start();
+
+    function dispatch(arr) { window.dispatchOverlayEvent({ type: 'LogLine', line: arr }); }
+    function setSelf(id, name) { window.dispatchOverlayEvent({ type: 'ChangePrimaryPlayer', charID: parseInt(id, 16), charName: name || 'You' }); }
+    function resetOverlay() { dispatch(['260', 't', '1']); dispatch(['260', 't', '0']); }
+
+    var timers = [];
+    function clearTimers() { timers.forEach(clearTimeout); timers = []; }
+    function schedule(ms, fn) { timers.push(setTimeout(fn, ms)); }
+    function speed() { return parseFloat(document.getElementById('speed').value) || 4; }
+    function role() { return document.getElementById('role').value; }
+
+    // ---- 実ログ形式の行ビルダー ----
+    var SELF = '10AA0001', MATE = '10AA0002';
+    var KEFKA = '4000A001', NEO = '4000A002', CHAOS = '4000A003';
+    function cast(src, name, id, abil, ct) { return ['20', 't', src, name, id, abil, src, name, String(ct)]; }
+    function ability(src, name, id, abil) { return ['21', 't', src, name, id, abil, src, name, '0', '0']; }
+    function stat(id, name, dur, tgt, tgtName) { return ['26', 't', id, name, dur.toFixed(2), NEO, 'ネオエクスデス', tgt, tgtName, '00', '0', '0']; }
+    function tell(count) { return ['26', 't', '808', '-', '9999.00', NEO, 'Boss', NEO, 'Boss', count, '0', '0']; }
+    function head(icon) { return ['27', 't', KEFKA, 'ケフカ', '0000', '0000', icon, KEFKA, '0000', '0000']; }
+
+    // cactbot タイムライン (おちょくりソウル詠唱開始を 0 とした相対秒)
+    var T = {
+      phaseCast: 0, phaseHit: 5,
+      gc1Cast: 10.2, chaos1Cast: 15.2, gc1Hit: 18.9, chaos1Hit: 23.9,
+      gc2Cast: 25.0, chaos2Cast: 30.0, gc2Hit: 33.7, chaos2Hit: 38.7,
+      gc3Cast: 39.9, gc3Hit: 48.6,
+      flood: 60.7, antilight: 61.1,
+      manaCharge: 69.2, upsurge: 87.5, manaRelease: 108.8,
+    };
+
+    var SCN = {
+      a: { label: '早=1人受け / 遅=止まる / 視線2持ち',
+        gc1: true, chaos1: true, gc2: true, chaos2: false,
+        mine1: { id: '15A8', name: 'フォークライトニング', dur: 51 },
+        mine2: { id: '15AA', name: '加速度爆弾', dur: 61 },
+        gaze: 2, wound: '15A5', dof: '1558', floodId: 'C393',
+        chargeIce: '02A4', chargeThunder: '02A5', liveIce: '02A3', liveThunder: '02A5' },
+      b: { label: '早=頭割り / 視線1持ち',
+        gc1: false, chaos1: false, gc2: true, chaos2: true,
+        mine1: { id: '15A9', name: '水属性圧縮', dur: 51 },
+        mine2: null,
+        gaze: 1, wound: '15A6', dof: '1C6', floodId: 'C3A1',
+        chargeIce: '02A3', chargeThunder: '02A6', liveIce: '02A3', liveThunder: '02A6' },
+      c: { label: 'デバフ薄め（頭割りのみ）',
+        gc1: true, chaos1: false, gc2: false, chaos2: true,
+        mine1: null, mine2: null, gaze: 0,
+        wound: '1318', dof: '566', floodId: 'C3A2',
+        chargeIce: '02A4', chargeThunder: '02A6', liveIce: '02A4', liveThunder: '02A5' },
+    };
+    var TELL_EX = { true: '462', false: '461' };
+    var TELL_CH = { true: '460', false: '45F' };
+
+    function playScenario(key) {
+      stopAll();
+      var s = SCN[key], sp = speed(), out = document.getElementById('scnStatus');
+      resetOverlay(); setSelf(SELF, 'You'); O.dmp4._setRole(role());
+      out.textContent = s.label + '（' + role().toUpperCase() + '）再生中…';
+      var at = function (sec, fn) { schedule(sec * 1000 / sp, fn); };
+
+      at(T.phaseCast, function () { dispatch(cast(KEFKA, 'ケフカ', 'C2DC', 'おちょくりソウル', 5.0)); });
+      at(T.gc1Cast, function () { dispatch(cast(NEO, 'ネオエクスデス', 'BB14', 'グランドクロス', 8.7)); });
+      at(T.gc1Cast + 1, function () { dispatch(tell(TELL_EX[s.gc1])); });
+      at(T.chaos1Cast, function () { dispatch(cast(CHAOS, 'カオス', 'BB20', 'ほのお', 8.7)); });
+      at(T.chaos1Cast + 1, function () { dispatch(tell(TELL_CH[s.chaos1])); });
+
+      // GC1 のデバフ (自分ぶん + 全体の枠を作る他人ぶん)
+      at(T.gc1Hit, function () {
+        dispatch(stat('15A7', '呪詛の叫声', 60, s.gaze === 1 ? SELF : MATE, s.gaze === 1 ? 'You Player' : 'Mate Player'));
+        dispatch(stat('15A8', 'フォークライトニング', 51, MATE, 'Mate Player'));
+        dispatch(stat('15A9', '水属性圧縮', 76, MATE, 'Mate Player'));
+        if (s.mine1 && s.mine1.dur < 55) dispatch(stat(s.mine1.id, s.mine1.name, s.mine1.dur, SELF, 'You Player'));
+        if (s.mine2 && s.mine2.dur > 70) dispatch(stat(s.mine2.id, s.mine2.name, s.mine2.dur, SELF, 'You Player'));
+      });
+      at(T.chaos1Hit, function () { dispatch(stat('15AB', '混沌の炎', 60, SELF, 'You Player')); });
+
+      at(T.gc2Cast, function () { dispatch(cast(NEO, 'ネオエクスデス', 'BB14', 'グランドクロス', 8.7)); });
+      at(T.gc2Cast + 1, function () { dispatch(tell(TELL_EX[s.gc2])); });
+      at(T.chaos2Cast, function () { dispatch(cast(CHAOS, 'カオス', 'BB21', 'つなみ', 8.7)); });
+      at(T.chaos2Cast + 1, function () { dispatch(tell(TELL_CH[s.chaos2])); });
+      at(T.gc2Hit, function () {
+        dispatch(stat('15A7', '呪詛の叫声', 69, s.gaze === 2 ? SELF : MATE, s.gaze === 2 ? 'You Player' : 'Mate Player'));
+        dispatch(stat('15AA', '加速度爆弾', 36, MATE, 'Mate Player'));
+        if (s.mine2 && s.mine2.dur >= 55 && s.mine2.dur <= 70) dispatch(stat(s.mine2.id, s.mine2.name, s.mine2.dur, SELF, 'You Player'));
+      });
+      at(T.chaos2Hit, function () { dispatch(stat('15AC', '混沌の水', 69, SELF, 'You Player')); });
+
+      at(T.gc3Cast, function () { dispatch(cast(NEO, 'ネオエクスデス', 'BB14', 'グランドクロス', 8.7)); });
+      at(T.gc3Hit, function () {
+        dispatch(stat(s.wound, '傷', 15, SELF, 'You Player'));
+        dispatch(stat(s.dof, '死の超越/アラガンフィールド', 15, SELF, 'You Player'));
+      });
+      at(T.flood, function () { dispatch(cast(NEO, 'ネオエクスデス', s.floodId, '無の氾濫', 5.0)); });
+      at(T.antilight, function () { dispatch(ability(NEO, 'ネオエクスデス', 'C394', 'ホワイトアンチライト')); });
+
+      at(T.manaCharge - 0.2, function () { dispatch(head(s.chargeIce)); dispatch(head(s.chargeThunder)); });
+      at(T.manaCharge, function () {
+        dispatch(ability(KEFKA, 'ケフカ', 'BAA4', 'マジックチャージ'));
+        dispatch(stat('5CC', 'ブリザガチャージ', 60, KEFKA, 'ケフカ'));
+        dispatch(stat('5CD', 'サンダガチャージ', 60, KEFKA, 'ケフカ'));
+      });
+      at(T.upsurge, function () { dispatch(ability(KEFKA, 'ケフカ', 'C24A', 'アルテマアップサージ')); });
+      at(T.manaRelease, function () {
+        dispatch(head(s.liveIce)); dispatch(head(s.liveThunder));
+        dispatch(cast(KEFKA, 'ケフカ', 'BAA5', 'マジックアウト', 6.7));
+      });
+      at(T.manaRelease + 20, function () { out.textContent = s.label + '：完了'; });
+    }
+
+    document.querySelectorAll('[data-scn]').forEach(function (b) {
+      b.onclick = function () { playScenario(b.dataset.scn); };
+    });
+    document.getElementById('stop').onclick = function () { stopAll(); document.getElementById('scnStatus').textContent = 'リセット'; };
+    function stopAll() { clearTimers(); resetOverlay(); }
+
+    // ---- 実ログの読み込み（ストリーム解析でメモリ節約） ----
+    function tsec(ts) {
+      try { var t = ts.split('T')[1]; return (+t.slice(0,2))*3600 + (+t.slice(3,5))*60 + parseFloat(t.slice(6).split('+')[0].split('-')[0]); }
+      catch (e) { return -1; }
+    }
+    var KEEP_ABIL = { 'C2DC':1,'BB14':1,'BB20':1,'BB21':1,'C392':1,'C393':1,'C3A1':1,'C3A2':1,
+                      'C394':1,'C395':1,'C24A':1,'BAA4':1,'BAA5':1,'BABB':1 };
+    var KEEP_STAT = { '808':1,'15A5':1,'15A6':1,'15A7':1,'15A8':1,'15A9':1,'15AA':1,'15AB':1,'15AC':1,
+                      '1317':1,'1318':1,'1558':1,'566':1,'1C6':1,'5CC':1,'5CD':1,'5CA':1 };
+    var loaded = null;
+
+    document.getElementById('file').onchange = async function (e) {
+      var file = e.target.files[0]; if (!file) return;
+      var ls = document.getElementById('loadStatus');
+      ls.textContent = '読み込み中…';
+      var lines = [], players = {};
+      try {
+        var reader = file.stream().pipeThrough(new TextDecoderStream('utf-8')).getReader();
+        var buf = '';
+        while (true) {
+          var r = await reader.read(); if (r.done) break;
+          buf += r.value; var idx;
+          while ((idx = buf.indexOf('\n')) >= 0) {
+            var line = buf.slice(0, idx); buf = buf.slice(idx + 1);
+            keepLine(line, lines, players);
+          }
+        }
+        if (buf) keepLine(buf, lines, players);
+      } catch (err) {
+        var text = await file.text();
+        text.split('\n').forEach(function (l) { keepLine(l, lines, players); });
+      }
+      loaded = { lines: lines, players: players };
+      buildList(lines, ls);
+    };
+
+    function keepLine(line, lines, players) {
+      var p = line.split('|'); if (p.length < 5) return;
+      var c = p[0];
+      if ((c === '20' || c === '21' || c === '22') && KEEP_ABIL[(p[4] || '').toUpperCase()]) {
+        lines.push({ t: tsec(p[1]), arr: p });
+      } else if (c === '26' && KEEP_STAT[(p[2] || '').toUpperCase()]) {
+        lines.push({ t: tsec(p[1]), arr: p });
+        if (/^10/.test(p[7] || '')) players[p[7]] = p[8];
+      } else if (c === '27' && /^02A[1-6]$/i.test(p[6] || '')) {
+        lines.push({ t: tsec(p[1]), arr: p });
+      } else if (c === '02' || c === '01' || c === '03') {
+        lines.push({ t: tsec(p[1]), arr: p });
+      }
+    }
+
+    function buildList(lines, ls) {
+      var starts = lines.filter(function (x) { return x.arr[0] === '20' && (x.arr[4] || '').toUpperCase() === 'C2DC'; });
+      ls.textContent = 'P4（おちょくりソウル） ' + starts.length + ' 回 検出'
+        + (starts.length ? '' : ' — このログにはまだ P4 が入っていません');
+      var sel = document.getElementById('selfSel'); sel.innerHTML = '';
+      Object.keys(loaded.players).forEach(function (id) {
+        var o = document.createElement('option'); o.value = id; o.textContent = loaded.players[id]; sel.appendChild(o);
+      });
+      document.getElementById('selfRow').style.display = Object.keys(loaded.players).length ? 'flex' : 'none';
+      var ul = document.getElementById('burstList'); ul.innerHTML = '';
+      starts.forEach(function (b, i) {
+        var li = document.createElement('li');
+        var lbl = document.createElement('span'); lbl.textContent = '#' + (i + 1) + '  ' + fmt(b.t);
+        var btn = document.createElement('button'); btn.className = 'go'; btn.textContent = '再生';
+        btn.onclick = function () { playLog(b.t); };
+        li.appendChild(lbl); li.appendChild(btn); ul.appendChild(li);
+      });
+    }
+    function fmt(sec) { var h=Math.floor(sec/3600), m=Math.floor(sec%3600/60), s=Math.floor(sec%60);
+      return (h%24)+':' + ('0'+m).slice(-2) + ':' + ('0'+s).slice(-2); }
+
+    function playLog(t0) {
+      if (!loaded) return;
+      stopAll();
+      var sp = speed(), start = t0 - 3, endT = t0 + 140;
+      var sel = document.getElementById('selfSel');
+      var selfId = sel && sel.value;
+      if (selfId) setSelf(selfId, loaded.players[selfId]);
+      O.dmp4._setRole(role());
+      var stEl = document.getElementById('loadStatus');
+      stEl.textContent = '再生中 ' + fmt(t0);
+      loaded.lines.filter(function (x) { return x.t >= start && x.t <= endT; })
+        .sort(function (a, b) { return a.t - b.t; })
+        .forEach(function (x) {
+          schedule((x.t - start) * 1000 / sp, function () { window.dispatchOverlayEvent({ type: 'LogLine', line: x.arr }); });
+        });
+      schedule((endT - start) * 1000 / sp + 200, function () { stEl.textContent = '再生完了 ' + fmt(t0); });
+    }
+  })();
+  </script>
+</body>
+</html>
