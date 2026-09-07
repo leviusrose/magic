@@ -13,7 +13,7 @@ html, body {
 
 /* サイズ・位置は OverlayPlugin の「背景を白にする」で表示エリアを見える状態にしてから
    Width/Height/X/Y で合わせて、終わったらチェックを外す運用 (dottimer / ultimablaster と同じ)。
-   図 8 枚が横 1 行に並ぶので横長 (目安 900×150) に合わせる。処理が終わった図は消えて左に詰まる。
+   図 8 枚が横 1 行に並ぶので横長 (目安 900×150) に合わせる。並びは固定で、終わった図は薄くなるだけ。
    図の大きさは高さから自動で決まるので、高さを変えれば全体が追随する。 */
 
 #dm {
@@ -54,7 +54,7 @@ body.debug #dm { padding-top: 22px; }
   text-align: left;
 }
 
-/* ===== 図の並び (高さに合わせて横 1 行。横は溢れたら切れる) ===== */
+/* ===== 図の並び (高さに合わせて横 1 行。8 枚とも位置は動かさない) ===== */
 #dm-grid {
   flex: 1 1 auto;
   display: flex;
@@ -63,7 +63,7 @@ body.debug #dm { padding-top: 22px; }
   align-items: stretch;
   gap: 2px;
   min-height: 0;
-  /* 入りきらないぶんは右で切れる。終わった図が消えると残りが左へ詰まる。 */
+  /* 入りきらないぶんは右で切れる。終わった図も消さない (並びは動かさない)。 */
   overflow: hidden;
 }
 
@@ -80,7 +80,8 @@ body.debug #dm { padding-top: 22px; }
 .dm-panel.has  { opacity: 1; }
 .dm-panel.cur  { background: rgba(80,120,200,0.20); border-color: #8fb2ff; }
 .dm-panel.cur.mine { background: rgba(255,210,90,0.16); border-color: #ffe783; }
-.dm-panel.done { display: none; }
+/* 終わった図は薄くするだけ。位置は動かさない。 */
+.dm-panel.done { opacity: 0.22; }
 .dm-panel.soon { animation: panel-pulse 0.7s ease-in-out infinite alternate; }
 
 @keyframes panel-pulse {
@@ -107,8 +108,8 @@ body.debug #dm { padding-top: 22px; }
 }
 .dm-panel.soon .p-time { color: #ff9a6b; font-weight: 900; }
 
-/* 解決までの進み具合。100% になった時点でこの図が消えて左に詰まる。
-   canvas 側は下端 4.5% (draw.js の BAR0) には何も描かないので、一言と重ならない。 */
+/* 解決までの進み具合 (100% = 着弾)。
+   canvas 側は下端の帯 (draw.js の geom の v1 より下) には何も描かないので、一言と重ならない。 */
 .p-bar {
   position: absolute;
   left: 7%; right: 7%; bottom: 0.8%;

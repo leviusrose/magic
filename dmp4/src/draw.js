@@ -29,11 +29,10 @@
   };
 
   // 縦を 4 つの帯に割り振る。バーの帯には何も描かないので、DOM のプログレスバーと重ならない。
-  //   0    .. t1  見出し
-  //   t1   .. a1  アリーナ (残りに収まる最大の円)
-  //   v0   .. v1  一言
-  //   BAR0 .. H   プログレスバー (CSS 側と合わせる)
-  var BAR0 = 0.955;
+  //   0  .. t1  見出し
+  //   t1 .. a1  アリーナ (残りに収まる最大の円)
+  //   v0 .. v1  一言
+  //   v1 .. H   プログレスバー用の余白 (何も描かない。CSS の .p-bar と合わせる)
   function geom(W, H) {
     var t1 = H * 0.115;         // 見出し帯の下端
     var a1 = H * 0.775;         // アリーナ帯の下端
@@ -265,13 +264,20 @@
   function paintTruth(ctx, G, sc) {
     var y0 = G.t1, y1 = G.v0, h = (y1 - y0) / 2;
     if (!sc.known) {
-      // 答えは出た瞬間まで確定しない。チャージ済みの予兆だけ「溜」として仮表示する。
-      if (sc.charged) {
-        txtBox(ctx, '溜 扇' + (sc.charged.ice ? '真' : '偽'), G.cx, y0 + h * 0.55, G.W * 0.9, h * 0.42, COL.dim, 800);
-        txtBox(ctx, '溜 直' + (sc.charged.thunder ? '真' : '偽'), G.cx, y0 + h * 1.45, G.W * 0.9, h * 0.42, COL.dim, 800);
-      } else {
-        draw(ctx, '?', G.cx, (y0 + y1) / 2, G.S * 0.20, COL.dim, 900);
-      }
+      // 答えは出た瞬間まで確定しない。チャージ済みの予兆だけ「溜」として破線で仮表示する。
+      var c = sc.charged;
+      [['扇', c ? c.ice : null], ['直線', c ? c.thunder : null]].forEach(function (row, i) {
+        var cy = y0 + h * (i + 0.5);
+        ctx.fillStyle = 'rgba(120,140,170,0.10)';
+        ctx.fillRect(G.W * 0.05, cy - h * 0.40, G.W * 0.90, h * 0.80);
+        ctx.strokeStyle = 'rgba(120,140,170,0.40)'; ctx.lineWidth = Math.max(1, G.S * 0.006);
+        ctx.setLineDash([G.S * 0.03, G.S * 0.026]);
+        ctx.strokeRect(G.W * 0.05, cy - h * 0.40, G.W * 0.90, h * 0.80);
+        ctx.setLineDash([]);
+        txtBox(ctx, row[0], G.W * 0.27, cy, G.W * 0.34, h * 0.48, COL.dim, 800);
+        txtBox(ctx, row[1] == null ? '?' : ('溜' + (row[1] ? '真' : '偽')),
+          G.W * 0.68, cy, G.W * 0.44, h * 0.54, COL.dim, 900);
+      });
       return;
     }
     [['扇', sc.ice], ['直線', sc.thunder]].forEach(function (row, i) {
