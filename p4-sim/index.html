@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>絶妖星乱舞 P4 カンペ シミュレータ</title>
+<link rel="stylesheet" href="../dmp4/styles.css">
+<style>
+  html, body { background:#0b1220; }
+  body { margin:0; color:#cdddf2; font-family:"Segoe UI",system-ui,"Noto Sans JP",sans-serif;
+    padding:16px 18px 40px; }
+  h1 { font-size:19px; margin:0 0 3px; font-weight:800; }
+  .lead { font-size:12.5px; color:#5f758f; margin:0 0 16px; line-height:1.6; max-width:80em; }
+  .lead b { color:#8fb2ff; font-weight:700; }
+  a { color:#8cdcff; }
+  .cols { display:flex; gap:16px; flex-wrap:wrap; align-items:flex-start; }
+
+  /* オーバーレイ本体を閉じ込める枠。position:fixed をここで止める。 */
+  .stage { position:relative; background:#05090f; border:1px solid #283a54;
+    border-radius:12px; overflow:hidden; flex:none; }
+  .stage.rows-1 { width:min(94vw,900px); height:150px; }
+  .stage.rows-2 { width:440px; height:290px; }
+  #dm { position:absolute !important; inset:0 !important; }
+  #dm-debug, #dm-status { position:absolute !important; }
+
+  .panel { flex:1 1 320px; min-width:300px; max-width:420px; display:flex; flex-direction:column; gap:12px; }
+  .card { background:#111d2e; border:1px solid #283a54; border-radius:12px; padding:12px 13px; }
+  .card h2 { font-size:10.5px; letter-spacing:.14em; text-transform:uppercase; color:#8298b4; margin:0 0 9px; }
+  .row { display:flex; gap:7px; flex-wrap:wrap; align-items:center; }
+  .row + .row { margin-top:7px; }
+  button, select { font:inherit; font-size:13px; font-weight:700; color:#cdddf2; background:#18273b;
+    border:1px solid #283a54; border-radius:8px; padding:7px 10px; cursor:pointer; }
+  button:hover { border-color:#8cdcff; }
+  button.primary { background:#ffd166; border-color:#ffd166; color:#1a1405; }
+  button.go { background:#8cdcff; border-color:#8cdcff; color:#04121a; }
+  button[aria-pressed="true"] { background:#24374f; border-color:#8fb2ff; }
+  label { font-size:12px; color:#8298b4; }
+  .hint { font-size:12px; color:#5f758f; line-height:1.6; }
+
+  table.spec { width:100%; border-collapse:collapse; font-size:12.5px; }
+  table.spec th { text-align:left; color:#7f92ab; font-weight:700; padding:2px 8px 2px 0;
+    white-space:nowrap; vertical-align:top; }
+  table.spec td { padding:2px 0; color:#cfe0f5; }
+  #spec.hidden tbody { visibility:hidden; }
+
+  /* タイムライン */
+  .tl { margin-top:16px; }
+  .tl-bar { position:relative; height:34px; background:#0d1726; border:1px solid #243550;
+    border-radius:8px; overflow:hidden; }
+  .tl-tick { position:absolute; top:0; bottom:0; width:1px; background:rgba(120,140,170,0.18); }
+  .tl-ev { position:absolute; top:5px; width:3px; height:11px; border-radius:2px; }
+  .tl-head { position:absolute; top:0; bottom:0; width:2px; background:#ffd166; box-shadow:0 0 6px #ffd166; }
+  .tl-labels { position:relative; height:14px; font-size:10px; color:#5f758f; }
+  .tl-labels span { position:absolute; transform:translateX(-50%); }
+
+  ol.events { list-style:none; margin:10px 0 0; padding:0; max-height:340px; overflow:auto;
+    border:1px solid #243550; border-radius:8px; }
+  ol.events li { display:grid; grid-template-columns:4.6em 6.4em 1fr; gap:8px; align-items:baseline;
+    padding:4px 9px; font-size:12.5px; border-top:1px solid rgba(36,53,80,0.6); color:#7f92ab; }
+  ol.events li:first-child { border-top:0; }
+  ol.events li .t { font-variant-numeric:tabular-nums; color:#5f758f; text-align:right; }
+  ol.events li .who { color:#6d809b; font-size:11.5px; }
+  ol.events li.k-cast .what { color:#9fb4d0; }
+  ol.events li.k-tell .what { color:#c07bff; }
+  ol.events li.k-hit .what  { color:#ff9a6b; }
+  ol.events li.k-debuff .what { color:#8cdcff; }
+  ol.events li.k-resolve .what { color:#ffe783; font-weight:800; }
+  ol.events li.past { opacity:0.38; }
+  ol.events li.now { background:rgba(255,209,102,0.14); }
+</style>
+</head>
+<body>
+  <h1>🃏 絶妖星乱舞 P4 カンペ シミュレータ</h1>
+  <p class="lead">
+    <a href="../dmp4/">magic/dmp4</a> のオーバーレイ本体をそのまま動かして、P4 のいろんなケースを
+    イメトレできるページ。<b>ランダム</b>を押すと真偽・自分のデバフ・傷の色などを引き直します。
+    タイムラインは cactbot の絶妖星乱舞データ準拠で、<b>敵の詠唱・着弾・デバフ付与・自分が動く瞬間</b>を
+    実時間で流します。<b>1段 / 2段</b>はその場で切り替えられます。
+  </p>
+
+  <div class="cols">
+    <!-- === オーバーレイ本体（dmp4/index.html と同じ DOM） === -->
+    <div class="stage rows-1" id="stage">
+      <div id="dm-debug" style="display:none">booting…</div>
+      <div id="dm">
+        <div id="dm-now">
+          <span id="dm-now-main" class="idle">P4 待機</span>
+          <span id="dm-now-sub"></span>
+        </div>
+        <div id="dm-grid"></div>
+      </div>
+      <div id="dm-status"></div>
+    </div>
+
+    <div class="panel">
+      <div class="card">
+        <h2>シナリオ</h2>
+        <div class="row">
+          <button class="primary" id="roll">🎲 ランダムで引き直す</button>
+          <button class="go" id="play">▶ 再生</button>
+          <button id="stop">■ 停止</button>
+        </div>
+        <div class="row">
+          <label>段数</label>
+          <select id="rows"><option value="1">1段（横長）</option><option value="2">2段（4×2）</option></select>
+          <label>速度</label>
+          <select id="speed">
+            <option value="1">等速（実戦テンポ）</option>
+            <option value="2">2倍</option>
+            <option value="4">4倍</option>
+          </select>
+        </div>
+        <div class="row">
+          <label>担当</label>
+          <select id="assign"></select>
+        </div>
+        <div class="row">
+          <label>ロール</label>
+          <select id="role"><option value="dps">DPS</option><option value="th">TH</option></select>
+          <button id="toggleSpec" aria-pressed="false">答えを隠す</button>
+        </div>
+        <div class="hint" id="status" style="margin-top:8px; color:#8cdcff;"></div>
+      </div>
+
+      <div class="card">
+        <h2>この回の内訳（答え合わせ用）</h2>
+        <table class="spec" id="spec"><tbody></tbody></table>
+      </div>
+
+      <div class="card hint">
+        4倍などで早送りすると、デバフの残り時間もその分だけ縮んで表示されます
+        （ログの秒数ごと縮めているため）。タイミングの練習は等速で。
+      </div>
+    </div>
+  </div>
+
+  <div class="tl">
+    <div class="tl-bar" id="tlBar"></div>
+    <div class="tl-labels" id="tlLabels"></div>
+    <ol class="events" id="events"></ol>
+  </div>
+
+  <!-- OverlayPluginApi を stub して legacy モードで即起動させる -->
+  <script>window.OverlayPluginApi = { callHandler: function (j, cb) { if (cb) cb('null'); } };</script>
+  <script src="../dmp4/src/api.js"></script>
+  <script src="../dmp4/src/draw.js"></script>
+  <script src="../dmp4/src/dmp4.js"></script>
+  <script src="timeline.js"></script>
+  <script>
+  (function () {
+    'use strict';
+    var O = window.Overlay, NS = window.P4Sim;
+    O.dmp4._config.sound = false;      // ブラウザだと自動再生が止められるので無音
+    O.dmp4._config.showStatus = false;
+    O.dmp4.init();
+    O.api.start();
+
+    var el = function (id) { return document.getElementById(id); };
+    var END = 120;                     // タイムラインの長さ(秒)
+
+    // --- 担当のセレクトを埋める ---
+    NS.ASSIGN.forEach(function (a) {
+      var o = document.createElement('option');
+      o.value = a.key; o.textContent = a.label; el('assign').appendChild(o);
+    });
+
+    var scn = NS.randomScenario();
+    var script = [];
+    var timers = [];
+    var raf = null;
+    var startedAt = null;
+
+    function dispatch(arr) { window.dispatchOverlayEvent({ type: 'LogLine', line: arr }); }
+    function setSelf() {
+      window.dispatchOverlayEvent({
+        type: 'ChangePrimaryPlayer', charID: parseInt(NS.ID.SELF, 16), charName: 'You Player',
+      });
+    }
+    function resetOverlay() { dispatch(['260', 't', '1']); dispatch(['260', 't', '0']); }
+    function speed() { return parseFloat(el('speed').value) || 1; }
+
+    // 早送りしても表示が破綻しないよう、ステータス行の秒数を速度で割る
+    function scaleLine(arr, sp) {
+      if (sp === 1) return arr;
+      var a = arr.slice();
+      if (a[0] === '26' && a[4]) {
+        var d = parseFloat(a[4]);
+        if (!isNaN(d) && d < 9000) a[4] = (d / sp).toFixed(2);
+      } else if (a[0] === '20' && a[8]) {
+        var c = parseFloat(a[8]);
+        if (!isNaN(c)) a[8] = (c / sp).toFixed(3);
+      }
+      return a;
+    }
+
+    function stop() {
+      timers.forEach(clearTimeout); timers = [];
+      if (raf) { cancelAnimationFrame(raf); raf = null; }
+      startedAt = null;
+      resetOverlay();
+      renderHead(0);
+      markEvents(-1);
+      el('status').textContent = '停止中';
+    }
+
+    // api.js の購読登録は非同期 (apiReady.then の中) なので、
+    // 準備完了を待ってから流さないと最初の 1 行 (自キャラ ID) が捨てられる。
+    function play() { O.api.ready().then(playNow); }
+    function playNow() {
+      stop();
+      var sp = speed();
+      setSelf();
+      O.dmp4._setRole(scn.role);
+      el('role').value = scn.role;
+      startedAt = performance.now();
+      script.forEach(function (e) {
+        if (!e.lines.length) return;
+        timers.push(setTimeout(function () {
+          e.lines.forEach(function (l) { dispatch(scaleLine(l, sp)); });
+        }, (e.t * 1000) / sp));
+      });
+      el('status').textContent = '再生中（' + (sp === 1 ? '等速' : sp + '倍') + '）';
+      loop();
+    }
+
+    function loop() {
+      raf = requestAnimationFrame(loop);
+      if (startedAt == null) return;
+      var sp = speed();
+      var t = ((performance.now() - startedAt) / 1000) * sp;
+      renderHead(t);
+      markEvents(t);
+      if (t > END + 6) { el('status').textContent = '再生完了'; startedAt = null; }
+    }
+
+    // --- シナリオを作り直す ---
+    function rebuild(newScn) {
+      scn = newScn;
+      el('assign').value = scn.assign;
+      el('role').value = scn.role;
+      script = NS.build(scn);
+      renderSpec();
+      renderTimeline();
+      stop();
+    }
+
+    function renderSpec() {
+      var tb = el('spec').querySelector('tbody');
+      tb.innerHTML = '';
+      NS.describe(scn).forEach(function (r) {
+        var tr = document.createElement('tr');
+        var th = document.createElement('th'); th.textContent = r[0];
+        var td = document.createElement('td'); td.textContent = r[1];
+        tr.appendChild(th); tr.appendChild(td); tb.appendChild(tr);
+      });
+    }
+
+    var evEls = [];
+    function renderTimeline() {
+      var bar = el('tlBar'), lab = el('tlLabels'), list = el('events');
+      bar.innerHTML = ''; lab.innerHTML = ''; list.innerHTML = ''; evEls = [];
+      for (var s = 0; s <= END; s += 10) {
+        var tick = document.createElement('div');
+        tick.className = 'tl-tick'; tick.style.left = (s / END * 100) + '%';
+        bar.appendChild(tick);
+        var sp2 = document.createElement('span');
+        sp2.textContent = s + 's'; sp2.style.left = (s / END * 100) + '%';
+        lab.appendChild(sp2);
+      }
+      var COL = { cast: '#5f7590', tell: '#c07bff', hit: '#ff9a6b', debuff: '#8cdcff', resolve: '#ffe783' };
+      script.forEach(function (e, i) {
+        var m = document.createElement('div');
+        m.className = 'tl-ev';
+        m.style.left = (Math.min(e.t, END) / END * 100) + '%';
+        m.style.background = COL[e.kind] || '#5f7590';
+        if (e.kind === 'resolve') { m.style.height = '22px'; m.style.width = '4px'; }
+        m.title = e.t.toFixed(1) + 's ' + e.label;
+        bar.appendChild(m);
+
+        var li = document.createElement('li');
+        li.className = 'k-' + e.kind;
+        var t = document.createElement('span'); t.className = 't'; t.textContent = e.t.toFixed(1) + 's';
+        var w = document.createElement('span'); w.className = 'who'; w.textContent = e.actor;
+        var x = document.createElement('span'); x.className = 'what'; x.textContent = e.label;
+        li.appendChild(t); li.appendChild(w); li.appendChild(x);
+        list.appendChild(li); evEls.push(li);
+      });
+      var head = document.createElement('div');
+      head.className = 'tl-head'; head.id = 'tlHead'; head.style.left = '0%';
+      bar.appendChild(head);
+    }
+
+    function renderHead(t) {
+      var h = el('tlHead');
+      if (h) h.style.left = (Math.max(0, Math.min(t, END)) / END * 100) + '%';
+    }
+    function markEvents(t) {
+      var cur = -1;
+      for (var i = 0; i < script.length; i++) if (script[i].t <= t) cur = i;
+      evEls.forEach(function (li, i) {
+        li.classList.toggle('past', i < cur);
+        li.classList.toggle('now', i === cur);
+      });
+      if (cur >= 0 && evEls[cur]) {
+        var li = evEls[cur], p = li.parentNode;
+        if (li.offsetTop < p.scrollTop || li.offsetTop > p.scrollTop + p.clientHeight - 30) {
+          p.scrollTop = li.offsetTop - p.clientHeight / 2;
+        }
+      }
+    }
+
+    // --- 操作 ---
+    el('roll').onclick = function () { rebuild(NS.randomScenario()); play(); };
+    el('play').onclick = play;
+    el('stop').onclick = stop;
+    el('assign').onchange = function () { scn.assign = this.value; rebuild(scn); };
+    el('role').onchange = function () { scn.role = this.value; rebuild(scn); };
+    el('speed').onchange = function () { if (startedAt != null) play(); };
+    // 自キャラ ID は取りこぼしが致命的なので、念のため毎回入れ直す
+    el('rows').onchange = function () {
+      var n = parseInt(this.value, 10);
+      el('stage').className = 'stage rows-' + n;
+      O.dmp4._setRows(n);
+    };
+    el('toggleSpec').onclick = function () {
+      var hidden = el('spec').classList.toggle('hidden');
+      this.setAttribute('aria-pressed', String(hidden));
+      this.textContent = hidden ? '答えを見る' : '答えを隠す';
+    };
+
+    rebuild(scn);
+    O.api.ready().then(function () {
+      // URL に #auto を付けると読み込みと同時に再生する (スクショ確認 / リンク共有用)
+      if (location.hash.indexOf('auto') >= 0) play();
+      else el('status').textContent = '「再生」か「ランダムで引き直す」を押してください';
+    });
+  })();
+  </script>
+</body>
+</html>

@@ -55,19 +55,27 @@ body.debug #dm { padding-top: 22px; }
   text-align: left;
 }
 
-/* ===== 図の並び (4 枚 × 2 段。上段 ①〜④ = 前半 / 下段 ⑤〜⑧ = 後半) ===== */
+/* ===== 図の並び。段数は #dm-grid のクラス (rows-1 / rows-2) で切り替える ===== */
 #dm-grid {
   flex: 1 1 auto;
   display: grid;
   grid-auto-flow: row;
-  grid-template-rows: repeat(2, minmax(0, 1fr));
-  grid-template-columns: repeat(4, auto);
   justify-content: start;
   align-content: stretch;
   gap: 2px;
   min-height: 0;
   /* 入りきらないぶんは切れる。終わった図も消さない (並びは動かさない)。 */
   overflow: hidden;
+}
+/* 1 段 = 横 1 行に 8 枚 */
+#dm-grid.rows-1 {
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-columns: repeat(8, auto);
+}
+/* 2 段 = 上段 ①〜④ (前半) / 下段 ⑤〜⑧ (後半) */
+#dm-grid.rows-2 {
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(4, auto);
 }
 
 .dm-panel {

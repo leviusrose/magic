@@ -447,6 +447,22 @@ r = chaosRun(false, false, false);
 check('両方 嘘 → 炎=中央 / 水=タケノコ', r.fire === false && r.water === true, r.fire + '/' + r.water);
 
 
+console.log('25) プログレスバーの total は「最初に見えた時から解決まで」で、後続デバフで飛ばない');
+emit('260|t|0'); tick();
+emit(cast('4000AAAA', 'ケフカ', 'C2DC', 'おちょくりソウル', '5.000'));
+emit(tell('462'));
+const t0 = NOW;
+emit(stat('15A8', 'フォークライトニング', 51, SELF));       // GC1 の 51s
+const total1 = st().steps.short.total;
+check('1 本目で total = 51s', Math.round(total1 / 1000) === 51, total1);
+advance(15000);
+emit(stat('15AA', '加速度爆弾', 36, OTHER));                // GC2 の 36s (他人ぶん)
+const total2 = st().steps.short.total;
+check('2 本目が来ても total は縮まない', total2 >= total1, total1 + ' → ' + total2);
+check('解決時刻は 51s 後 ≒ 36s 後 でほぼ同じ',
+  Math.abs((st().steps.short.at - t0) - 51000) < 1500, (st().steps.short.at - t0));
+
+
 console.log(`\n結果: ${pass} pass / ${fail} fail`);
 process.exit(fail ? 1 : 0);
 }

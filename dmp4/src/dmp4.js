@@ -56,6 +56,9 @@
     //   'center' = 中央固定 / 'next' = 次の散開集合の方向 / 数値 = 北からの時計回り deg
     baitAt: 'center',
 
+    // 図の段数。1 = 横 1 行に 8 枚 (横長) / 2 = 4 枚 × 2 段 (小さめの塊)。
+    rows: 1,
+
     // 'auto' はパーティ情報のジョブから判定。外れるときだけ 'th' / 'dps' に固定する。
     role: 'auto',
 
@@ -129,8 +132,8 @@
   var SHRIEK_SPLIT = 65;     // 視線1(60) と 視線2(69) の境目(秒)
   var RESET_AFTER_SEC = 120;
   var PANEL_AR = 0.76;       // 図 1 枚の 幅/高さ (styles.css の aspect-ratio と揃える)
-  var PANEL_ROWS = 1;        // 何段に並べるか (styles.css のグリッドと揃える。2段版は magic/dmp42)
   var PANEL_GAP = 2;         // 段の間隔 px (styles.css の gap と揃える)
+  function panelRows() { return CONFIG.rows === 2 ? 2 : 1; }
 
   // 表示順 = 解決される順。終わったものは消えて左に詰まる。
   var PANELS = [
@@ -191,6 +194,7 @@
     if (CONFIG.debug && els.debug) { els.debug.style.display = 'block'; document.body.classList.add('debug'); }
 
     state = freshState();
+    applyRows();
     buildPanels();
 
     if (!O.api) { console.error('[dmp4] Overlay.api missing'); return; }
@@ -364,8 +368,8 @@
 
     if (id === ST.SHRIEK) {
       var gk = dur < SHRIEK_SPLIT ? 'gaze1' : 'gaze2';
-      var g = s[gk] || (s[gk] = { at: at, total: dur * 1000, truth: state.tell.exdeath, players: [], mine: false });
-      g.at = at; g.total = dur * 1000;
+      var g = s[gk] || (s[gk] = { at: at, from: now(), truth: state.tell.exdeath, players: [], mine: false });
+      g.at = at; g.total = at - g.from;   // バーは「最初に見えた時から解決まで」で伸ばす
       if (g.truth == null) g.truth = state.tell.exdeath;
       if (tgtName && g.players.indexOf(tgtName) < 0) g.players.push(tgtName);
       if (mine) g.mine = true;
@@ -381,8 +385,8 @@
         state.lastGcDebuffAt = now();
       }
       var wk = dur >= WINDOW_SPLIT ? 'long' : 'short';
-      var w = s[wk] || (s[wk] = { at: at, total: dur * 1000, kind: null, truth: null, bomb: null, mine: false });
-      w.at = at; w.total = dur * 1000;
+      var w = s[wk] || (s[wk] = { at: at, from: now(), kind: null, truth: null, bomb: null, mine: false });
+      w.at = at; w.total = at - w.from;   // 後から別のデバフが来てもバーが飛ばないようにする
       if (mine) {
         w.mine = true;
         if (id === ST.BOMB) w.bomb = state.tell.exdeath;
@@ -661,6 +665,11 @@
     });
   }
 
+  // 段数を DOM に反映する (styles.css の #dm-grid.rows-1 / .rows-2)
+  function applyRows() {
+    if (els.grid) els.grid.className = 'rows-' + panelRows();
+  }
+
   // 高さに合わせてパネル幅とバッキングストアを決める。横は溢れたら切れる。
   var lastGridH = 0;
   function syncSize() {
@@ -668,7 +677,8 @@
     var h = els.grid.clientHeight || 0;
     if (!h || h === lastGridH) return;
     lastGridH = h;
-    var rowH = (h - (PANEL_ROWS - 1) * PANEL_GAP) / PANEL_ROWS;
+    var rows = panelRows();
+    var rowH = (h - (rows - 1) * PANEL_GAP) / rows;
     var w = Math.round(rowH * PANEL_AR);
     var bw = Math.max(160, Math.min(360, w));
     var bh = Math.round(bw / PANEL_AR);
@@ -834,6 +844,8 @@
     _stepValue: stepValue,
     _scene: scene,
     _setRole: function (r) { ownRole = r; },
+    // 段数を実行中に切り替える (シミュレータ用)
+    _setRows: function (n) { CONFIG.rows = (n === 2 ? 2 : 1); applyRows(); lastGridH = 0; syncSize(); },
     _role: function () { return myRole(); },
   };
 })();
