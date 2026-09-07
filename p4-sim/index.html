@@ -8,28 +8,34 @@
 <style>
   html, body { background:#0b1220; }
   body { margin:0; color:#cdddf2; font-family:"Segoe UI",system-ui,"Noto Sans JP",sans-serif;
-    padding:16px 18px 40px; }
-  h1 { font-size:19px; margin:0 0 3px; font-weight:800; }
-  .lead { font-size:12.5px; color:#5f758f; margin:0 0 16px; line-height:1.6; max-width:80em; }
+    padding:14px 16px 40px; }
+  h1 { font-size:18px; margin:0 0 3px; font-weight:800; }
+  .lead { font-size:12.5px; color:#5f758f; margin:0 0 14px; line-height:1.6; }
   .lead b { color:#8fb2ff; font-weight:700; }
   a { color:#8cdcff; }
-  .cols { display:flex; gap:16px; flex-wrap:wrap; align-items:flex-start; }
 
-  /* オーバーレイ本体を閉じ込める枠。position:fixed をここで止める。 */
+  /* 左 = 図とタイムライン (残り幅を全部使う) / 右 = 操作パネル */
+  .layout { display:grid; grid-template-columns:minmax(0,1fr) 320px; gap:14px; align-items:start; }
+  .main { min-width:0; }
+  @media (max-width: 880px) {
+    .layout { grid-template-columns:minmax(0,1fr); }
+    body { padding:12px 10px 32px; }
+  }
+
+  /* オーバーレイ本体を閉じ込める枠。position:fixed をここで止める。
+     大きさは JS (fitStage) が幅から計算して入れる。 */
   .stage { position:relative; background:#05090f; border:1px solid #283a54;
-    border-radius:12px; overflow:hidden; flex:none; }
-  .stage.rows-1 { width:min(94vw,900px); height:150px; }
-  .stage.rows-2 { width:440px; height:290px; }
+    border-radius:12px; overflow:hidden; }
   #dm { position:absolute !important; inset:0 !important; }
   #dm-debug, #dm-status { position:absolute !important; }
 
-  .panel { flex:1 1 320px; min-width:300px; max-width:420px; display:flex; flex-direction:column; gap:12px; }
-  .card { background:#111d2e; border:1px solid #283a54; border-radius:12px; padding:12px 13px; }
+  .card { background:#111d2e; border:1px solid #283a54; border-radius:12px; padding:11px 12px; }
+  .card + .card { margin-top:12px; }
   .card h2 { font-size:10.5px; letter-spacing:.14em; text-transform:uppercase; color:#8298b4; margin:0 0 9px; }
   .row { display:flex; gap:7px; flex-wrap:wrap; align-items:center; }
   .row + .row { margin-top:7px; }
   button, select { font:inherit; font-size:13px; font-weight:700; color:#cdddf2; background:#18273b;
-    border:1px solid #283a54; border-radius:8px; padding:7px 10px; cursor:pointer; }
+    border:1px solid #283a54; border-radius:8px; padding:7px 10px; cursor:pointer; max-width:100%; }
   button:hover { border-color:#8cdcff; }
   button.primary { background:#ffd166; border-color:#ffd166; color:#1a1405; }
   button.go { background:#8cdcff; border-color:#8cdcff; color:#04121a; }
@@ -44,19 +50,23 @@
   #spec.hidden tbody { visibility:hidden; }
 
   /* タイムライン */
-  .tl { margin-top:16px; }
-  .tl-bar { position:relative; height:34px; background:#0d1726; border:1px solid #243550;
+  .tl { margin-top:12px; }
+  .tl-bar { position:relative; height:30px; background:#0d1726; border:1px solid #243550;
     border-radius:8px; overflow:hidden; }
   .tl-tick { position:absolute; top:0; bottom:0; width:1px; background:rgba(120,140,170,0.18); }
-  .tl-ev { position:absolute; top:5px; width:3px; height:11px; border-radius:2px; }
+  .tl-ev { position:absolute; top:4px; width:3px; height:10px; border-radius:2px; }
   .tl-head { position:absolute; top:0; bottom:0; width:2px; background:#ffd166; box-shadow:0 0 6px #ffd166; }
   .tl-labels { position:relative; height:14px; font-size:10px; color:#5f758f; }
   .tl-labels span { position:absolute; transform:translateX(-50%); }
 
-  ol.events { list-style:none; margin:10px 0 0; padding:0; max-height:340px; overflow:auto;
-    border:1px solid #243550; border-radius:8px; }
-  ol.events li { display:grid; grid-template-columns:4.6em 6.4em 1fr; gap:8px; align-items:baseline;
-    padding:4px 9px; font-size:12.5px; border-top:1px solid rgba(36,53,80,0.6); color:#7f92ab; }
+  /* ★ position:relative が無いと li.offsetTop の基準がこの ol にならず、
+       スクロール追従の計算が壊れる (一番下まで飛ぶ)。 */
+  ol.events { position:relative; list-style:none; margin:8px 0 0; padding:0;
+    height:300px; overflow-y:auto; border:1px solid #243550; border-radius:8px; }
+  @media (max-width: 880px) { ol.events { height:220px; } }
+  ol.events li { display:grid; grid-template-columns:4.4em 6.2em minmax(0,1fr); gap:8px;
+    align-items:baseline; padding:4px 9px; font-size:12.5px;
+    border-top:1px solid rgba(36,53,80,0.6); color:#7f92ab; }
   ol.events li:first-child { border-top:0; }
   ol.events li .t { font-variant-numeric:tabular-nums; color:#5f758f; text-align:right; }
   ol.events li .who { color:#6d809b; font-size:11.5px; }
@@ -66,37 +76,46 @@
   ol.events li.k-debuff .what { color:#8cdcff; }
   ol.events li.k-resolve .what { color:#ffe783; font-weight:800; }
   ol.events li.past { opacity:0.38; }
-  ol.events li.now { background:rgba(255,209,102,0.14); }
+  ol.events li.now { background:rgba(255,209,102,0.16); }
 </style>
 </head>
 <body>
   <h1>🃏 絶妖星乱舞 P4 カンペ シミュレータ</h1>
   <p class="lead">
-    <a href="../dmp4/">magic/dmp4</a> のオーバーレイ本体をそのまま動かして、P4 のいろんなケースを
-    イメトレできるページ。<b>ランダム</b>を押すと真偽・自分のデバフ・傷の色などを引き直します。
-    タイムラインは cactbot の絶妖星乱舞データ準拠で、<b>敵の詠唱・着弾・デバフ付与・自分が動く瞬間</b>を
-    実時間で流します。<b>1段 / 2段</b>はその場で切り替えられます。
+    <a href="../dmp4/">magic/dmp4</a> のオーバーレイ本体をそのまま動かして P4 をイメトレするページ。
+    <b>ランダム</b>で真偽・自分のデバフ・傷の色などを引き直します。タイムラインは cactbot の
+    絶妖星乱舞データ準拠で、<b>敵の詠唱・着弾・デバフ付与・自分が動く瞬間</b>を実時間で流します。
   </p>
 
-  <div class="cols">
-    <!-- === オーバーレイ本体（dmp4/index.html と同じ DOM） === -->
-    <div class="stage rows-1" id="stage">
-      <div id="dm-debug" style="display:none">booting…</div>
-      <div id="dm">
-        <div id="dm-now">
-          <span id="dm-now-main" class="idle">P4 待機</span>
-          <span id="dm-now-sub"></span>
+  <div class="layout">
+    <div class="main">
+      <!-- === オーバーレイ本体（dmp4/index.html と同じ DOM） === -->
+      <div class="stage" id="stage">
+        <div id="dm-debug" style="display:none">booting…</div>
+        <div id="dm">
+          <div id="dm-now">
+            <span id="dm-now-main" class="idle">P4 待機</span>
+            <span id="dm-now-sub"></span>
+          </div>
+          <div id="dm-grid"></div>
         </div>
-        <div id="dm-grid"></div>
+        <div id="dm-status"></div>
       </div>
-      <div id="dm-status"></div>
+
+      <div class="tl">
+        <div class="tl-bar" id="tlBar"></div>
+        <div class="tl-labels" id="tlLabels"></div>
+        <ol class="events" id="events"></ol>
+      </div>
     </div>
 
-    <div class="panel">
+    <aside>
       <div class="card">
         <h2>シナリオ</h2>
         <div class="row">
           <button class="primary" id="roll">🎲 ランダムで引き直す</button>
+        </div>
+        <div class="row">
           <button class="go" id="play">▶ 再生</button>
           <button id="stop">■ 停止</button>
         </div>
@@ -105,7 +124,7 @@
           <select id="rows"><option value="1">1段（横長）</option><option value="2">2段（4×2）</option></select>
           <label>速度</label>
           <select id="speed">
-            <option value="1">等速（実戦テンポ）</option>
+            <option value="1">等速</option>
             <option value="2">2倍</option>
             <option value="4">4倍</option>
           </select>
@@ -128,16 +147,10 @@
       </div>
 
       <div class="card hint">
-        4倍などで早送りすると、デバフの残り時間もその分だけ縮んで表示されます
-        （ログの秒数ごと縮めているため）。タイミングの練習は等速で。
+        図の大きさは枠の幅から自動で決まります（ウィンドウを広げると大きくなります）。
+        早送りするとデバフの残り時間もその分だけ縮んで表示されるので、タイミングの練習は等速で。
       </div>
-    </div>
-  </div>
-
-  <div class="tl">
-    <div class="tl-bar" id="tlBar"></div>
-    <div class="tl-labels" id="tlLabels"></div>
-    <ol class="events" id="events"></ol>
+    </aside>
   </div>
 
   <!-- OverlayPluginApi を stub して legacy モードで即起動させる -->
@@ -157,6 +170,32 @@
 
     var el = function (id) { return document.getElementById(id); };
     var END = 120;                     // タイムラインの長さ(秒)
+    var PANEL_AR = 0.76;               // 図 1 枚の 幅/高さ (dmp4.js と揃える)
+    var MAX_W = { 1: 1400, 2: 760 };   // これ以上は広げない (図が大きすぎるので)
+
+    // 狭い画面は 1 段だと図が小さくなりすぎるので 2 段で始める
+    if (window.innerWidth < 880) el('rows').value = '2';
+
+    // --- 図の大きさ: 枠の幅から「8 枚 (or 4 枚) がちょうど収まる高さ」を逆算する ---
+    function fitStage() {
+      var rows = parseInt(el('rows').value, 10) === 2 ? 2 : 1;
+      var stage = el('stage');
+      var cols = rows === 1 ? 8 : 4;
+      var avail = stage.parentNode.clientWidth;
+      var W = Math.max(280, Math.min(avail, MAX_W[rows]));
+      var panelW = (W - 4 - 2 * (cols - 1) - 2) / cols;   // #dm の padding と gap と枠線
+      var rowH = panelW / PANEL_AR;
+      stage.style.width = Math.round(W) + 'px';
+
+      function setH(nowH) {
+        stage.style.height = Math.round(rowH * rows + 2 * (rows - 1) + nowH + 5) + 'px';
+        O.dmp4._setRows(rows);
+      }
+      setH(26);
+      // 「今やること」行の高さは vmin 依存なので、実測して 1 回だけ補正する
+      var nowEl = el('dm-now');
+      if (nowEl && nowEl.offsetHeight) setH(nowEl.offsetHeight + 2);
+    }
 
     // --- 担当のセレクトを埋める ---
     NS.ASSIGN.forEach(function (a) {
@@ -199,7 +238,9 @@
       startedAt = null;
       resetOverlay();
       renderHead(0);
+      lastCur = -2;
       markEvents(-1);
+      el('events').scrollTop = 0;
       el('status').textContent = '停止中';
     }
 
@@ -211,7 +252,6 @@
       var sp = speed();
       setSelf();
       O.dmp4._setRole(scn.role);
-      el('role').value = scn.role;
       startedAt = performance.now();
       script.forEach(function (e) {
         if (!e.lines.length) return;
@@ -226,8 +266,7 @@
     function loop() {
       raf = requestAnimationFrame(loop);
       if (startedAt == null) return;
-      var sp = speed();
-      var t = ((performance.now() - startedAt) / 1000) * sp;
+      var t = ((performance.now() - startedAt) / 1000) * speed();
       renderHead(t);
       markEvents(t);
       if (t > END + 6) { el('status').textContent = '再生完了'; startedAt = null; }
@@ -256,6 +295,7 @@
     }
 
     var evEls = [];
+    var COL = { cast: '#5f7590', tell: '#c07bff', hit: '#ff9a6b', debuff: '#8cdcff', resolve: '#ffe783' };
     function renderTimeline() {
       var bar = el('tlBar'), lab = el('tlLabels'), list = el('events');
       bar.innerHTML = ''; lab.innerHTML = ''; list.innerHTML = ''; evEls = [];
@@ -263,17 +303,16 @@
         var tick = document.createElement('div');
         tick.className = 'tl-tick'; tick.style.left = (s / END * 100) + '%';
         bar.appendChild(tick);
-        var sp2 = document.createElement('span');
-        sp2.textContent = s + 's'; sp2.style.left = (s / END * 100) + '%';
-        lab.appendChild(sp2);
+        var t2 = document.createElement('span');
+        t2.textContent = s + 's'; t2.style.left = (s / END * 100) + '%';
+        lab.appendChild(t2);
       }
-      var COL = { cast: '#5f7590', tell: '#c07bff', hit: '#ff9a6b', debuff: '#8cdcff', resolve: '#ffe783' };
-      script.forEach(function (e, i) {
+      script.forEach(function (e) {
         var m = document.createElement('div');
         m.className = 'tl-ev';
         m.style.left = (Math.min(e.t, END) / END * 100) + '%';
         m.style.background = COL[e.kind] || '#5f7590';
-        if (e.kind === 'resolve') { m.style.height = '22px'; m.style.width = '4px'; }
+        if (e.kind === 'resolve') { m.style.height = '20px'; m.style.width = '4px'; }
         m.title = e.t.toFixed(1) + 's ' + e.label;
         bar.appendChild(m);
 
@@ -294,18 +333,21 @@
       var h = el('tlHead');
       if (h) h.style.left = (Math.max(0, Math.min(t, END)) / END * 100) + '%';
     }
+
+    var lastCur = -2;
     function markEvents(t) {
       var cur = -1;
       for (var i = 0; i < script.length; i++) if (script[i].t <= t) cur = i;
+      if (cur === lastCur) return;
+      lastCur = cur;
       evEls.forEach(function (li, i) {
         li.classList.toggle('past', i < cur);
         li.classList.toggle('now', i === cur);
       });
+      // 現在行を枠の中央に置く。ol が position:relative なので offsetTop はこの ol 基準。
       if (cur >= 0 && evEls[cur]) {
-        var li = evEls[cur], p = li.parentNode;
-        if (li.offsetTop < p.scrollTop || li.offsetTop > p.scrollTop + p.clientHeight - 30) {
-          p.scrollTop = li.offsetTop - p.clientHeight / 2;
-        }
+        var li = evEls[cur], p = el('events');
+        p.scrollTop = Math.max(0, li.offsetTop - (p.clientHeight - li.offsetHeight) / 2);
       }
     }
 
@@ -316,23 +358,23 @@
     el('assign').onchange = function () { scn.assign = this.value; rebuild(scn); };
     el('role').onchange = function () { scn.role = this.value; rebuild(scn); };
     el('speed').onchange = function () { if (startedAt != null) play(); };
-    // 自キャラ ID は取りこぼしが致命的なので、念のため毎回入れ直す
-    el('rows').onchange = function () {
-      var n = parseInt(this.value, 10);
-      el('stage').className = 'stage rows-' + n;
-      O.dmp4._setRows(n);
-    };
+    el('rows').onchange = fitStage;
     el('toggleSpec').onclick = function () {
       var hidden = el('spec').classList.toggle('hidden');
       this.setAttribute('aria-pressed', String(hidden));
       this.textContent = hidden ? '答えを見る' : '答えを隠す';
     };
+    var rt = null;
+    window.addEventListener('resize', function () {
+      clearTimeout(rt); rt = setTimeout(fitStage, 120);
+    });
 
+    fitStage();
     rebuild(scn);
     O.api.ready().then(function () {
       // URL に #auto を付けると読み込みと同時に再生する (スクショ確認 / リンク共有用)
       if (location.hash.indexOf('auto') >= 0) play();
-      else el('status').textContent = '「再生」か「ランダムで引き直す」を押してください';
+      else el('status').textContent = '「ランダムで引き直す」か「再生」を押してください';
     });
   })();
   </script>
