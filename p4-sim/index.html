@@ -24,8 +24,9 @@
 
   /* オーバーレイ本体を閉じ込める枠。position:fixed をここで止める。
      大きさは JS (fitStage) が幅から計算して入れる。 */
-  .stage { position:relative; background:#05090f; border:1px solid #283a54;
-    border-radius:12px; overflow:hidden; }
+  .mainInner { max-width:100%; }
+  .stage { position:relative; width:100%; background:#05090f; border:1px solid #283a54;
+    border-radius:12px; overflow:hidden; box-sizing:border-box; }
   #dm { position:absolute !important; inset:0 !important; }
   #dm-debug, #dm-status { position:absolute !important; }
 
@@ -88,7 +89,9 @@
   </p>
 
   <div class="layout">
-    <div class="main">
+    <div class="main" id="main">
+      <!-- 図とタイムラインは同じ幅にしたいので、まとめて幅を持つ箱に入れる -->
+      <div class="mainInner" id="mainInner">
       <!-- === オーバーレイ本体（dmp4/index.html と同じ DOM） === -->
       <div class="stage" id="stage">
         <div id="dm-debug" style="display:none">booting…</div>
@@ -106,6 +109,7 @@
         <div class="tl-bar" id="tlBar"></div>
         <div class="tl-labels" id="tlLabels"></div>
         <ol class="events" id="events"></ol>
+      </div>
       </div>
     </div>
 
@@ -181,11 +185,13 @@
       var rows = parseInt(el('rows').value, 10) === 2 ? 2 : 1;
       var stage = el('stage');
       var cols = rows === 1 ? 8 : 4;
-      var avail = stage.parentNode.clientWidth;
+      // 幅は「図 + タイムライン」の箱に入れる。stage は width:100% でそれに追従するので、
+      // タイムラインと図の幅が必ず揃う。
+      var avail = el('main').clientWidth;
       var W = Math.max(280, Math.min(avail, MAX_W[rows]));
+      el('mainInner').style.width = Math.round(W) + 'px';
       var panelW = (W - 4 - 2 * (cols - 1) - 2) / cols;   // #dm の padding と gap と枠線
       var rowH = panelW / PANEL_AR;
-      stage.style.width = Math.round(W) + 'px';
 
       function setH(nowH) {
         stage.style.height = Math.round(rowH * rows + 2 * (rows - 1) + nowH + 5) + 'px';
