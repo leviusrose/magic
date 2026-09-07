@@ -1,0 +1,147 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  color: #fff;
+  font-family: "Noto Sans JP", "Yu Gothic UI", sans-serif;
+  overflow: hidden;
+  user-select: none;
+  cursor: default;
+}
+
+/* サイズ・位置は OverlayPlugin の「背景を白にする」で表示エリアを見える状態にしてから
+   Width/Height/X/Y で合わせて、終わったらチェックを外す運用 (dottimer / ultimablaster と同じ)。
+   図 8 枚が横 1 行に並ぶので横長 (目安 900×150) に合わせる。処理が終わった図は消えて左に詰まる。
+   図の大きさは高さから自動で決まるので、高さを変えれば全体が追随する。 */
+
+#dm {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 2px 2px 1px;
+  pointer-events: none;
+  text-shadow: 0 0 0.35em #000, 0.04em 0.04em 0 #000;
+}
+body.debug #dm { padding-top: 22px; }
+
+/* ===== 今やること ===== */
+#dm-now {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-start;
+  gap: 0.6em;
+  line-height: 1.0;
+  padding: 0 0.3em;
+}
+#dm-now-main {
+  font-size: max(13px, 2.9vmin);
+  font-weight: 900;
+}
+#dm-now-main.idle { color: #7f92ab; font-size: max(11px, 2.2vmin); font-weight: 700; }
+#dm-now-main.wait { color: #b9c6dc; font-size: max(12px, 2.5vmin); }
+#dm-now-main.go   { color: #ffe783; }
+#dm-now-sub {
+  font-size: max(11px, 2.2vmin);
+  font-weight: 800;
+  color: #8fb2ff;
+  font-variant-numeric: tabular-nums;
+  min-width: 2.4em;
+  text-align: left;
+}
+
+/* ===== 図の並び (高さに合わせて横 1 行。横は溢れたら切れる) ===== */
+#dm-grid {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: row;
+  justify-content: flex-start;
+  align-items: stretch;
+  gap: 2px;
+  min-height: 0;
+  /* 入りきらないぶんは右で切れる。終わった図が消えると残りが左へ詰まる。 */
+  overflow: hidden;
+}
+
+.dm-panel {
+  position: relative;
+  flex: 0 0 auto;
+  height: 100%;
+  /* 幅は高さから決まる (JS でも px を入れて aspect-ratio 非対応でも崩れないようにしている) */
+  aspect-ratio: 19 / 25;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  opacity: 0.5;
+}
+.dm-panel.has  { opacity: 1; }
+.dm-panel.cur  { background: rgba(80,120,200,0.20); border-color: #8fb2ff; }
+.dm-panel.cur.mine { background: rgba(255,210,90,0.16); border-color: #ffe783; }
+.dm-panel.done { display: none; }
+.dm-panel.soon { animation: panel-pulse 0.7s ease-in-out infinite alternate; }
+
+@keyframes panel-pulse {
+  0%   { box-shadow: none; }
+  100% { box-shadow: 0 0 1.2vmin rgba(255,231,131,0.75); }
+}
+
+/* 見出しと一言は canvas に焼いてある (パネル幅を高さだけで決めたいので) */
+.p-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* 残り秒だけ 0.1 秒ごとに変わるので DOM で重ねる */
+.p-time {
+  position: absolute;
+  top: 0; right: 0.25em;
+  font-size: max(9px, 1.6vmin);
+  font-weight: 800;
+  color: #8fb2ff;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+.dm-panel.soon .p-time { color: #ff9a6b; font-weight: 900; }
+
+/* 解決までの進み具合。100% になった時点でこの図が消えて左に詰まる。
+   canvas 側は下端 4.5% (draw.js の BAR0) には何も描かないので、一言と重ならない。 */
+.p-bar {
+  position: absolute;
+  left: 7%; right: 7%; bottom: 0.8%;
+  height: 3.2%;
+  min-height: 3px;
+  background: rgba(120,140,170,0.22);
+  border-radius: 2px;
+  overflow: hidden;
+  pointer-events: none;
+}
+.p-bar-fill {
+  height: 100%;
+  width: 0%;
+  background: #8fb2ff;
+  border-radius: 2px;
+}
+.dm-panel.mine .p-bar-fill { background: #ffe783; }
+.dm-panel.soon .p-bar-fill { background: #ff9a6b; }
+
+/* 上部の診断バナー (CONFIG.debug=true) */
+#dm-debug {
+  position: fixed; top: 0; left: 0; right: 0;
+  background: rgba(0,0,0,0.78); color: #9fe;
+  font: 11px/1.5 'Consolas','Cascadia Mono',monospace;
+  padding: 2px 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  pointer-events: none; z-index: 20; border-bottom: 1px solid #2a4a4a;
+}
+
+/* 自キャラ検出状況 */
+#dm-status {
+  position: fixed; left: 6px; bottom: 4px;
+  font-size: max(10px, 1.8vmin); pointer-events: none; z-index: 5;
+  text-shadow: 0 0 0.3em #000;
+}
+#dm-status.ok   { color: #8fe6c2; opacity: 0.75; }
+#dm-status.warn { color: #ffd36b; opacity: 0.95; }
