@@ -400,6 +400,53 @@ O.dmp4._config.role = 'auto';
 check('auto に戻すとジョブ判定(th)の西(270)', pos('short') === '270', pos('short'));
 
 
+console.log('24) ほのお/つなみ: 詠唱順はランダムだが着弾は必ず 炎 → 水。真偽はそれぞれ別');
+// 実タイムライン: カオスの詠唱 2 回は約 16 秒あき、デバフはその 8.7 秒後に付く。
+// 炎(15AB) は 60s か 45s、水(15AC) は 84s か 69s なので、どちらの順で詠唱されても
+// 切れる時刻は 炎 ≈ +69s / 水 ≈ +93s になり、着弾順は必ず 炎 → 水。
+function chaosRun(firstIsFire, firstTrue, secondTrue) {
+  emit('260|t|0'); tick();
+  const t0 = NOW;
+  emit(cast('4000AAAA', 'ケフカ', 'C2DC', 'おちょくりソウル', '5.000'));
+  // 1 回目の詠唱 → 真偽 → 9 秒後に着弾してデバフ付与
+  emit(cast(BOSS, 'カオス', firstIsFire ? 'BB20' : 'BB21', firstIsFire ? 'ほのお' : 'つなみ', '8.700'));
+  emit(tell(firstTrue ? '460' : '45F'));
+  advance(9000);
+  if (firstIsFire) emit(stat('15AB', '混沌の炎', 60, SELF));
+  else emit(stat('15AC', '混沌の水', 84, SELF));
+  // 2 回目 (約 16 秒後)
+  advance(7000);
+  emit(cast(BOSS, 'カオス', firstIsFire ? 'BB21' : 'BB20', firstIsFire ? 'つなみ' : 'ほのお', '8.700'));
+  emit(tell(secondTrue ? '460' : '45F'));
+  advance(9000);
+  if (firstIsFire) emit(stat('15AC', '混沌の水', 69, SELF));
+  else emit(stat('15AB', '混沌の炎', 45, SELF));
+  tick();
+  return {
+    fire: scn('fire').bait, water: scn('water').bait,
+    fireAt: (st().steps.fire.at - t0) / 1000, waterAt: (st().steps.water.at - t0) / 1000,
+  };
+}
+
+// 順番A: ほのお → つなみ。炎の真偽 = 1回目(本当) / 水の真偽 = 2回目(嘘)
+let r = chaosRun(true, true, false);
+check('A: 炎 = 1回目の真偽(本当) → タケノコ', r.fire === true, r.fire);
+check('A: 水 = 2回目の真偽(嘘) → タケノコ', r.water === true, r.water);
+check('A: 着弾は 炎 → 水', r.fireAt < r.waterAt, r.fireAt.toFixed(1) + ' / ' + r.waterAt.toFixed(1));
+
+// 順番B: つなみ → ほのお (逆順)。炎の真偽 = 2回目 / 水の真偽 = 1回目
+r = chaosRun(false, true, false);
+check('B: 炎 = 2回目の真偽(嘘) → 中央', r.fire === false, r.fire);
+check('B: 水 = 1回目の真偽(本当) → 中央', r.water === false, r.water);
+check('B: 逆順で詠唱されても着弾は 炎 → 水', r.fireAt < r.waterAt, r.fireAt.toFixed(1) + ' / ' + r.waterAt.toFixed(1));
+
+// 真偽が同じでも 炎 と 水 で答えが逆になる (判定が互いに反転しているため)
+r = chaosRun(true, true, true);
+check('両方 本当 → 炎=タケノコ / 水=中央', r.fire === true && r.water === false, r.fire + '/' + r.water);
+r = chaosRun(false, false, false);
+check('両方 嘘 → 炎=中央 / 水=タケノコ', r.fire === false && r.water === true, r.fire + '/' + r.water);
+
+
 console.log(`\n結果: ${pass} pass / ${fail} fail`);
 process.exit(fail ? 1 : 0);
 }
