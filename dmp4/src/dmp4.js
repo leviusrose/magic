@@ -49,6 +49,9 @@
       { label: '1', angle: 315, color: '#ff5b5b' },
     ],
 
+    // 無の氾濫で「自分から見て左/右」も出すか。既定はオフ (色だけ出す)。
+    showLaserSide: false,
+
     // 混沌の炎/水 が「タケノコ」のとき、円を捨てに行く場所。
     //   'center' = 中央固定 / 'next' = 次の散開集合の方向 / 数値 = 北からの時計回り deg
     baitAt: 'center',
@@ -61,6 +64,7 @@
       spread: '散開', stack: '頭割り',
       stop: '止まる', move: '動く',
       lookAway: '見ない', lookAt: '見る',
+      stopShort: '止', moveShort: '動',   // 図の中と一言に横並びで出す短縮版
       bait: 'タケノコ', center: '中央',
       purple: '紫', blue: '青', left: '左', right: '右',
       avoidBoth: '両方踏まない', coneOnly: '扇だけ踏む', lineOnly: '直線だけ踏む', coneAndLine: '両方踏む',
@@ -303,11 +307,7 @@
     if (id === AB.GRAND_CROSS) { state.gcCount++; return; }
     if (onProgress(id)) return;
 
-    if (AB.FLOOD.indexOf(id) >= 0) {
-      var lz = computeLaser(id);
-      state.steps.laser = { at: now() + castMs, total: castMs, color: lz && lz.color, dir: lz && lz.dir, id: id };
-      return;
-    }
+    if (AB.FLOOD.indexOf(id) >= 0) { updateLaser(id, castMs); return; }
     if (id === AB.MANA_RELEASE) {
       // 詠唱明け(+0.3s)の予兆で確定するので、その時刻に評価する
       state.steps.mana = { at: now() + castMs + 300, total: castMs + 300, ice: null, thunder: null };
@@ -399,10 +399,11 @@
       touch(); return;
     }
     if (mine) {
-      if (WOUND_WHITE[id]) { state.wound = 'white'; touch(); return; }
-      if (WOUND_BLACK[id]) { state.wound = 'black'; touch(); return; }
-      if (DEATH[id]) { state.dof = 'death'; touch(); return; }
-      if (FIELD[id]) { state.dof = 'field'; touch(); return; }
+      // GC3: 傷 と 死の超越/アラガンフィールド。両方揃えば必要な色が決まる。
+      if (WOUND_WHITE[id]) { state.wound = 'white'; updateLaser(null, 0, dur * 1000); touch(); return; }
+      if (WOUND_BLACK[id]) { state.wound = 'black'; updateLaser(null, 0, dur * 1000); touch(); return; }
+      if (DEATH[id]) { state.dof = 'death'; updateLaser(null, 0, dur * 1000); touch(); return; }
+      if (FIELD[id]) { state.dof = 'field'; updateLaser(null, 0, dur * 1000); touch(); return; }
     }
     if (CONFIG.debug && !diag.unknown[id] && /^1[0-9A-F]{2,3}$/.test(id)) {
       diag.unknown[id] = p[3];
@@ -421,19 +422,40 @@
   }
 
   // ===== 判定ロジック =====
-  // 無の氾濫: 立つべきレーザーの色と左右。
-  //   C392/C393 = 本当、C3A2/C393 = 青が自分から見て左。
-  //   死の超越 は「氾濫が本当なら色そのまま」、アラガンフィールド は「本当なら色が入れ替わる」。
-  function computeLaser(abilId) {
+  // 無の氾濫。行く色は GC3 のデバフだけで確定する。
+  //   死の超越 = 自分の傷の色そのまま / アラガンフィールド = 逆の色
+  //
+  // ★ 無の氾濫そのものの真偽 (C392/C393 = 本当、C3A1/C3A2 = 嘘) は色に влиять させない。
+  //   cactbot は嘘のとき色を反転する実装 (keep = (death && floodTrue) || (field && !floodTrue)) だが、
+  //   このPTの処理法では真偽はどちらでも同じ色に行くので反転させない。
+  //   もし実戦で合わなかったら computeLaser() の 1 行を元に戻す。
+  // 詠唱 (11 秒後) で決まるのは左右だけ (C3A2/C393 = 青が自分から見て左)。
+  function opposite(c) { return c === 'white' ? 'black' : 'white'; }
+  function needColor() {
     if (!state.wound || !state.dof) return null;
-    var floodTrue = (abilId === 'C392' || abilId === 'C393');
+    return state.dof === 'death' ? state.wound : opposite(state.wound);
+  }
+  function computeLaser(abilId) {
+    var color = needColor();                      // ← 真偽で反転させない
+    if (color == null) return null;
     var blueLeft = (abilId === 'C3A2' || abilId === 'C393');
-    var keep = (state.dof === 'death' && floodTrue) || (state.dof === 'field' && !floodTrue);
-    var color = keep ? state.wound : (state.wound === 'white' ? 'black' : 'white');
     var dir = (color === 'black')
       ? (blueLeft ? 'left' : 'right')
       : (blueLeft ? 'right' : 'left');
     return { color: color, dir: dir };
+  }
+  // デバフが揃った時点で色を確定。詠唱では左右とタイマーだけ足す。
+  function updateLaser(abilId, castMs, durMs) {
+    var s = state.steps;
+    var color = needColor();
+    if (color == null) return;
+    if (abilId == null) {
+      if (!s.laser) s.laser = { at: now() + durMs, total: durMs, color: color, dir: null };
+      else { s.laser.color = color; s.laser.at = now() + durMs; s.laser.total = durMs; }
+      return;
+    }
+    var lz = computeLaser(abilId);
+    s.laser = { at: now() + castMs, total: castMs, color: lz.color, dir: lz.dir, id: abilId };
   }
 
   // マジックアウト: チャージ時の予兆の真偽と、出た瞬間の予兆の真偽が一致なら「その予兆は本当」。
@@ -457,8 +479,12 @@
     if (!w) return null;
     var act = windowAction(w);
     var base = act === 'spread' ? L('spread') : act === 'stack' ? L('stack') : '?';
-    // 止まる/動く は図の隅に出しているので、一言には足さない (2 行になって字が小さくなる)
-    if (!short && w.bomb != null) base += ' / ' + (w.bomb ? L('stop') : L('move'));
+    // 図の中の自分マーカーにも同じ字が入る。1 行に収めたいので短縮版を横に並べる。
+    if (w.bomb != null) {
+      base += short
+        ? ' ' + (w.bomb ? L('stopShort') : L('moveShort'))
+        : ' / ' + (w.bomb ? L('stop') : L('move'));
+    }
     return base;
   }
   function gazeText(g, short) {
@@ -486,7 +512,9 @@
   function laserText(z) {
     if (!z) return null;
     if (!z.color) return '?';
-    return (z.color === 'white' ? L('purple') : L('blue')) + ' ' + (z.dir === 'left' ? L('left') : L('right'));
+    var t = (z.color === 'white' ? L('purple') : L('blue'));
+    if (CONFIG.showLaserSide && z.dir) t += ' ' + (z.dir === 'left' ? L('left') : L('right'));
+    return t;
   }
   function manaText(m) {
     if (!m) return null;
@@ -557,8 +585,9 @@
         var z = s.laser;
         return {
           kind: 'laser',
-          blueLeft: z ? (z.id === 'C3A2' || z.id === 'C393') : false,
-          color: z && z.color, dir: z && z.dir, known: !!(z && z.color),
+          color: z && z.color, dir: z && z.dir,
+          showSide: !!CONFIG.showLaserSide,
+          known: !!(z && z.color),
         };
       }
       case 'short': case 'long': return windowScene(key);
@@ -588,7 +617,7 @@
   function sceneSig(sc) {
     if (!sc) return '-';
     return [sc.kind, sc.known, sc.action, sc.bomb, sc.truth, sc.mine, sc.bait, sc.color, sc.dir,
-      sc.blueLeft, sc.ice, sc.thunder, sc.atCenter, sc.charged ? (sc.charged.ice + '/' + sc.charged.thunder) : '',
+      sc.showSide, sc.ice, sc.thunder, sc.atCenter, sc.charged ? (sc.charged.ice + '/' + sc.charged.thunder) : '',
       (sc.myAngles || []).map(Math.round).join(','), sc.myAngle == null ? '' : Math.round(sc.myAngle)].join('|');
   }
 

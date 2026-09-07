@@ -85,27 +85,32 @@
       kind: 'window', stack: POS.stack, spread: POS.spread,
       action: action, bomb: bomb, known: true,
       myAngles: action === 'stack' ? [POS.stack[role]] : POS.spread[role],
-    }, { title: title, value: action === 'stack' ? '頭割り' : '散開', mine: true }, cap);
+    }, { title: title, mine: true,
+      value: (action === 'stack' ? '頭割り' : '散開') + (bomb == null ? '' : (bomb ? ' 止' : ' 動')) }, cap);
   }
 
   // ---------- ① 無の氾濫 ----------
   var s1 = section('① 無の氾濫',
-    '必要なのは「左右どちらのビームに入るか」だけなので、マップもボスの位置も描かず 2 本を左右に並べる。'
-    + '能力ID で「本当か」「青が自分の左か」が決まり、生者/死者の傷 と 死の超越/アラガンフィールド の'
-    + '組み合わせで入る色が決まる。明るく塗ったほうが自分の入るレーン。');
-  cell(s1, { kind: 'laser', blueLeft: true, color: 'white', dir: 'right', known: true },
-    { title: '① 無の氾濫', value: '紫 右', mine: true }, '青が左（C393）／自分は紫 → 右');
-  cell(s1, { kind: 'laser', blueLeft: false, color: 'black', dir: 'right', known: true },
-    { title: '① 無の氾濫', value: '青 右', mine: true }, '青が右（C3A1）／自分は青 → 右');
-  cell(s1, { kind: 'laser', blueLeft: true, color: 'black', dir: 'left', known: true },
-    { title: '① 無の氾濫', value: '青 左', mine: true }, '青が左／自分は青 → 左');
-  cell(s1, { kind: 'laser', blueLeft: false, color: null, dir: null, known: false },
-    { title: '① 無の氾濫', value: '?' }, '傷デバフがまだ来ていない状態', 0.1);
+    '必要なのは「どっちの色に行くか」だけなので、左右に並べず 1 枚の色板で出す。'
+    + 'GC3 のデバフ（傷 と 死の超越/アラガンフィールド）が揃った時点で確定する: '
+    + '死の超越＝傷の色そのまま／アラガンフィールド＝逆の色。無の氾濫そのものの真偽では色は変わらない。'
+    + '左右も出したいときは CONFIG.showLaserSide = true。');
+  cell(s1, { kind: 'laser', color: 'white', dir: null, known: true },
+    { title: '① 無の氾濫', value: '紫', mine: true }, '紫の傷 + 死の超越 → 紫', 0.2);
+  cell(s1, { kind: 'laser', color: 'black', dir: null, known: true },
+    { title: '① 無の氾濫', value: '青', mine: true }, '青の傷 + 死の超越 → 青', 0.2);
+  cell(s1, { kind: 'laser', color: 'black', dir: null, known: true },
+    { title: '① 無の氾濫', value: '青', mine: true }, '紫の傷 + アラガンフィールド → 青（逆の色）', 0.5);
+  cell(s1, { kind: 'laser', color: 'white', dir: 'left', showSide: true, known: true },
+    { title: '① 無の氾濫', value: '紫 左', mine: true }, 'showLaserSide=true にすると左右も付く', 0.7);
+  cell(s1, { kind: 'laser', color: null, dir: null, known: false },
+    { title: '① 無の氾濫', value: '?' }, 'GC3 のデバフがまだ来ていない状態', 0.1);
 
   // ---------- ② 早 雷水 ----------
   var s2 = section('② 早 雷水',
     'マップ基準。TH は 北(頭割り)と西(1人受け)、DPS は 南(頭割り)と東(1人受け)。'
-    + '黄色が自分の行き先で、小さい点が全員の候補。右上の 止/動 が加速度爆弾。');
+    + '黄色が自分の行き先で、小さい点が全員の候補。加速度爆弾の 止/動 は'
+    + '自分マーカーの中と一言の横（1 行）に出す。');
   win(s2, '② 早 雷水', 'dps', 'spread', null, 'DPS・1人受け → 東');
   win(s2, '② 早 雷水', 'dps', 'stack', null, 'DPS・頭割り → 南');
   win(s2, '② 早 雷水', 'th', 'spread', null, 'TH・1人受け → 西');

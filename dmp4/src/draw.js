@@ -114,13 +114,15 @@
     ctx.strokeStyle = COL.otherEdge; ctx.lineWidth = Math.max(1, G.S * 0.006); ctx.stroke();
   }
   // 自分の行き先 (主役)。大きさは magic/ultimablaster のサイコロ強調と同じ。
-  function mine(ctx, G, x, y) {
+  // label は 1 文字だけ (止/動)。長い言葉は下の一言に任せる。
+  function mine(ctx, G, x, y, label) {
     var r = G.S * 0.052;
     ctx.beginPath(); ctx.arc(x, y, r * 1.7, 0, Math.PI * 2);
     ctx.fillStyle = 'rgba(255,231,131,0.20)'; ctx.fill();
     ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
     ctx.fillStyle = COL.self; ctx.fill();
     ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(1.5, G.S * 0.009); ctx.stroke();
+    if (label) labelIn(ctx, label, x, y, r, '#1c2a3e');
   }
   function leader(ctx, G, x, y) {
     ctx.strokeStyle = 'rgba(255,231,131,0.45)'; ctx.lineWidth = Math.max(1, G.S * 0.007);
@@ -132,9 +134,9 @@
     var p = pt(G.cx, G.cy, G.R * r, angle == null ? 0 : angle);
     other(ctx, G, p.x, p.y);
   }
-  function mineAt(ctx, G, angle, r) {
+  function mineAt(ctx, G, angle, r, label) {
     var p = pt(G.cx, G.cy, G.R * r, angle == null ? 0 : angle);
-    leader(ctx, G, p.x, p.y); mine(ctx, G, p.x, p.y);
+    leader(ctx, G, p.x, p.y); mine(ctx, G, p.x, p.y, label);
   }
 
   function fan(ctx, G, angle, halfWidth, color) {
@@ -184,32 +186,28 @@
 
   // ===== パネルごとの図 =====
 
-  // 無の氾濫: 必要なのは「左右どちらのビームに入るか」だけなので、マップもボス位置も描かない。
-  // 自分から見て左右に 2 本並べて、入るほうを明るく塗る。
+  // 無の氾濫: 必要なのは「どっちの色に行くか」だけなので、左右に並べず 1 枚の色板で出す。
+  // 色は GC3 のデバフが揃った時点で確定する (無の氾濫の真偽では反転しない)。
   function paintLaser(ctx, G, sc) {
-    var top = G.cy - G.R, h = G.R * 2;
-    var gap = G.W * 0.05, bw = (G.W * 0.90 - gap) / 2, x0 = G.W * 0.05;
-    var sides = [
-      { x: x0, label: '左', color: sc.blueLeft ? 'black' : 'white' },
-      { x: x0 + bw + gap, label: '右', color: sc.blueLeft ? 'white' : 'black' },
-    ];
-    sides.forEach(function (sd) {
-      var isBlue = (sd.color === 'black');
-      var isMine = sc.known && (sd.color === sc.color);
-      var rgb = isBlue ? '79,195,255' : '192,123,255';
-      ctx.fillStyle = 'rgba(' + rgb + ',' + (isMine ? 0.42 : 0.14) + ')';
-      ctx.fillRect(sd.x, top, bw, h);
-      ctx.strokeStyle = isMine ? '#fff' : 'rgba(' + rgb + ',0.45)';
-      ctx.lineWidth = Math.max(1, G.S * (isMine ? 0.016 : 0.007));
-      ctx.strokeRect(sd.x, top, bw, h);
-      var cx = sd.x + bw / 2;
-      txtBox(ctx, isBlue ? '青' : '紫', cx, top + h * 0.24, bw * 0.8, h * 0.20,
-        isMine ? '#fff' : 'rgba(' + rgb + ',0.8)', 900);
-      txtBox(ctx, sd.label, cx, top + h * 0.86, bw * 0.8, h * 0.14,
-        isMine ? COL.self : COL.dim, 800);
-      if (isMine) mine(ctx, G, cx, top + h * 0.55);
-    });
-    if (!sc.known) draw(ctx, '?', G.cx, G.cy, G.S * 0.13, COL.dim, 900);
+    var w = G.W * 0.60, x = (G.W - w) / 2;
+    var h = G.R * 1.55, y = G.cy - h / 2;
+    if (!sc.known) {
+      ctx.strokeStyle = 'rgba(120,140,170,0.35)'; ctx.lineWidth = Math.max(1, G.S * 0.008);
+      ctx.setLineDash([G.S * 0.03, G.S * 0.03]);
+      ctx.strokeRect(x, y, w, h); ctx.setLineDash([]);
+      draw(ctx, '?', G.cx, G.cy, G.S * 0.20, COL.dim, 900);
+      return;
+    }
+    var isBlue = (sc.color === 'black');
+    var rgb = isBlue ? '79,195,255' : '192,123,255';
+    ctx.fillStyle = 'rgba(' + rgb + ',0.40)';
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(1.5, G.S * 0.014);
+    ctx.strokeRect(x, y, w, h);
+    txtBox(ctx, isBlue ? '青' : '紫', G.cx, G.cy, w * 0.7, h * 0.55, '#fff', 900);
+    if (sc.showSide && sc.dir) {
+      txtBox(ctx, sc.dir === 'left' ? '左' : '右', G.cx, y + h * 0.86, w * 0.5, h * 0.16, COL.self, 800);
+    }
   }
 
   // 雷水/加速度: 頭割り(南北) と 1人受け(東西)。マップ基準。
@@ -224,13 +222,11 @@
       [].concat(sc.spread.dps || []).forEach(function (a) { otherAt(ctx, G, a, 0.68); });
     }
     if (!sc.known) { unknown(ctx, G); return; }
+    // 止/動 は自分マーカーの中に入れる (隅の小さい字だと見落とすので)
+    var bomb = sc.bomb == null ? null : (sc.bomb ? '止' : '動');
     [].concat(sc.myAngles || []).forEach(function (a) {
-      mineAt(ctx, G, a, sc.action === 'stack' ? 0.40 : 0.68);
+      mineAt(ctx, G, a, sc.action === 'stack' ? 0.40 : 0.68, bomb);
     });
-    if (sc.bomb != null) {
-      txtBox(ctx, sc.bomb ? '止' : '動', G.cx + G.R * 0.72, G.cy - G.R * 0.72,
-        G.S * 0.13, G.S * 0.11, sc.bomb ? COL.stop : COL.go, 900);
-    }
   }
 
   // 視線: 持ちは中央。真=全員外を向く / 偽=中央を見る。

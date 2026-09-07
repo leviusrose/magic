@@ -116,7 +116,7 @@ emit(cast(BOSS, 'ネオエクスデス', 'BB14', 'グランドクロス', '8.700
 check('GC カウント 2', st().gcCount === 2, st().gcCount);
 emit(stat('15AA', '加速度爆弾', 36, SELF));
 check('早 = 散開 / 動く (今やること用)', val('short') === '散開 / 動く', val('short'));
-check('早 = 図の一言は 散開 だけ (止/動は図の隅)', val('short', true) === '散開', val('short', true));
+check('早 = 図の一言は 1 行で横並び', val('short', true) === '散開 動', val('short', true));
 
 console.log('6) デバフ無しの枠は頭割り (加速度だけでも頭割りに入る)');
 emit('260|t|0'); tick();
@@ -124,7 +124,7 @@ emit(cast('4000AAAA', 'ケフカ', 'C2DC', 'おちょくりソウル', '5.000'))
 emit(tell('462'));
 emit(stat('15AA', '加速度爆弾', 61, SELF));
 check('遅 = 頭割り / 止まる (今やること用)', val('long') === '頭割り / 止まる', val('long'));
-check('遅 = 図の一言は 頭割り だけ', val('long', true) === '頭割り', val('long', true));
+check('遅 = 図の一言も 1 行で横並び', val('long', true) === '頭割り 止', val('long', true));
 check('早はまだ未確定', val('short') == null, val('short'));
 emit(stat('15A8', 'フォークライトニング', 51, OTHER));   // 他人ぶん → 時刻だけ入る
 check('他人のデバフでも早の時刻は入る', st().steps.short != null);
@@ -154,31 +154,34 @@ check('炎 嘘 = 中央', val('fire') === '中央', val('fire'));
 emit(stat('15AC', '混沌の水', 69, SELF));
 check('つなみ 嘘 = タケノコ', val('water') === 'タケノコ', val('water'));
 
-console.log('9) グランドクロス3回目 → 無の氾濫: 立つレーザーの色と左右 (全16通り)');
+console.log('9) 無の氾濫: 色はデバフだけで決まり、氾濫の真偽では反転しない');
 // C392=本当/青右, C393=本当/青左, C3A1=嘘/青右, C3A2=嘘/青左
-// 死の超越 = 氾濫が本当なら色そのまま / アラガンフィールド = 本当なら色が入れ替わる
+// 色 = 死の超越なら傷の色そのまま / アラガンフィールドなら逆の色 (氾濫の真偽は無関係)
 const LZ = O.dmp4._computeLaser;
 function laser(wound, dof, id) {
   st().wound = wound; st().dof = dof;
   const r = LZ(id);
   return r ? (r.color + '/' + r.dir) : null;
 }
-check('紫+死の超越 / C393(本当,青左) → 紫 右', laser('white', 'death', 'C393') === 'white/right');
-check('青+死の超越 / C392(本当,青右) → 青 右', laser('black', 'death', 'C392') === 'black/right');
-check('紫+アラガン / C392(本当,青右) → 青 右', laser('white', 'field', 'C392') === 'black/right');
-check('青+アラガン / C393(本当,青左) → 紫 右', laser('black', 'field', 'C393') === 'white/right');
-check('紫+死の超越 / C3A2(嘘,青左) → 青 左', laser('white', 'death', 'C3A2') === 'black/left');
-check('青+死の超越 / C3A1(嘘,青右) → 紫 左', laser('black', 'death', 'C3A1') === 'white/left');
-check('紫+アラガン / C3A1(嘘,青右) → 紫 左', laser('white', 'field', 'C3A1') === 'white/left');
-check('青+アラガン / C3A2(嘘,青左) → 青 左', laser('black', 'field', 'C3A2') === 'black/left');
-check('紫+死の超越 / C392(本当,青右) → 紫 左', laser('white', 'death', 'C392') === 'white/left');
-check('青+死の超越 / C393(本当,青左) → 青 左', laser('black', 'death', 'C393') === 'black/left');
-check('紫+アラガン / C393(本当,青左) → 青 左', laser('white', 'field', 'C393') === 'black/left');
-check('青+アラガン / C392(本当,青右) → 紫 左', laser('black', 'field', 'C392') === 'white/left');
-check('紫+死の超越 / C3A1(嘘,青右) → 青 右', laser('white', 'death', 'C3A1') === 'black/right');
-check('青+死の超越 / C3A2(嘘,青左) → 紫 右', laser('black', 'death', 'C3A2') === 'white/right');
-check('紫+アラガン / C3A2(嘘,青左) → 紫 右', laser('white', 'field', 'C3A2') === 'white/right');
-check('青+アラガン / C3A1(嘘,青右) → 青 右', laser('black', 'field', 'C3A1') === 'black/right');
+const IDS = ['C392', 'C393', 'C3A1', 'C3A2'];
+function colorFor(wound, dof) {
+  const set = new Set(IDS.map((id) => laser(wound, dof, id).split('/')[0]));
+  return set.size === 1 ? [...set][0] : 'ばらつき(' + [...set].join(',') + ')';
+}
+check('紫+死の超越 → どのIDでも 紫', colorFor('white', 'death') === 'white', colorFor('white', 'death'));
+check('青+死の超越 → どのIDでも 青', colorFor('black', 'death') === 'black', colorFor('black', 'death'));
+check('紫+アラガン → どのIDでも 青', colorFor('white', 'field') === 'black', colorFor('white', 'field'));
+check('青+アラガン → どのIDでも 紫', colorFor('black', 'field') === 'white', colorFor('black', 'field'));
+
+// 左右は「行く色」と「青が左か」だけで決まる (showLaserSide=true のときだけ使う)
+check('紫 / 青が左(C393) → 右', laser('white', 'death', 'C393') === 'white/right');
+check('紫 / 青が右(C392) → 左', laser('white', 'death', 'C392') === 'white/left');
+check('紫 / 青が左(C3A2) → 右', laser('white', 'death', 'C3A2') === 'white/right');
+check('紫 / 青が右(C3A1) → 左', laser('white', 'death', 'C3A1') === 'white/left');
+check('青 / 青が左(C393) → 左', laser('black', 'death', 'C393') === 'black/left');
+check('青 / 青が右(C392) → 右', laser('black', 'death', 'C392') === 'black/right');
+check('青 / 青が左(C3A2) → 左', laser('black', 'death', 'C3A2') === 'black/left');
+check('青 / 青が右(C3A1) → 右', laser('black', 'death', 'C3A1') === 'black/right');
 
 console.log('10) GC3 のデバフは自分ぶんだけ拾う (偽IDも同じ意味)');
 emit('260|t|0'); tick();
@@ -190,7 +193,10 @@ emit(stat('1C6', 'アラガンフィールド', 15, SELF));
 check('自分 = 青(黒)', st().wound === 'black', st().wound);
 check('自分 = アラガンフィールド', st().dof === 'field', st().dof);
 emit(cast(BOSS, 'ネオエクスデス', 'C3A1', '無の氾濫', '6.000'));
-check('レーザー行 = 青 右', val('laser') === '青 右', val('laser'));
+check('レーザー行 = 色だけ (左右は既定で出さない)', val('laser') === '紫', val('laser'));
+O.dmp4._config.showLaserSide = true;
+check('showLaserSide=true なら左右も付く', val('laser') === '紫 左', val('laser'));
+O.dmp4._config.showLaserSide = false;
 
 console.log('11) マジックチャージ → マジックアウト (チャージ時と一致なら予兆は本当)');
 emit(head('02A4'));                       // ブリザガ 本当
@@ -260,15 +266,27 @@ emit(stat('15AB', '混沌の炎', 60, SELF));
 check('炎 = タケノコ (カオス本当)', scn('fire').bait === true, scn('fire').bait);
 check('捨て場所は中央固定', scn('fire').atCenter === true, scn('fire').atCenter);
 
-console.log('17) 無の氾濫のシーン: 青が左かどうかを能力IDから渡す');
+console.log('17) 無の氾濫: GC3 のデバフが揃った時点で色が確定する (詠唱を待たない)');
+emit('260|t|0'); tick();
+emit(cast('4000AAAA', 'ケフカ', 'C2DC', 'おちょくりソウル', '5.000'));
+check('デバフ前は未確定', scn('laser').known === false);
 emit(stat('15A5', '生者の傷', 15, SELF));
+check('傷だけでは決まらない', scn('laser').known === false);
 emit(stat('1558', '死の超越', 15, SELF));
-emit(cast(BOSS, 'ネオエクスデス', 'C393', '無の氾濫', '5.000'));
-check('C393 → 青が左', scn('laser').blueLeft === true);
-check('紫+死の超越+本当 → 紫', scn('laser').color === 'white', scn('laser').color);
-check('紫が右', scn('laser').dir === 'right', scn('laser').dir);
-emit(cast(BOSS, 'ネオエクスデス', 'C3A1', '無の氾濫', '5.000'));
-check('C3A1 → 青が右', scn('laser').blueLeft === false);
+check('デバフが揃えば確定', scn('laser').known === true);
+check('死の超越 → 傷の色そのまま (紫)', scn('laser').color === 'white', scn('laser').color);
+check('詠唱前なので左右はまだ無い', scn('laser').dir == null, scn('laser').dir);
+emit(cast(BOSS, 'ネオエクスデス', 'C3A1', '無の氾濫', '5.000'));   // 嘘
+check('氾濫が嘘でも色は変わらない', scn('laser').color === 'white', scn('laser').color);
+check('詠唱で左右だけ付く', scn('laser').dir === 'left', scn('laser').dir);
+
+emit('260|t|0'); tick();
+emit(cast('4000AAAA', 'ケフカ', 'C2DC', 'おちょくりソウル', '5.000'));
+emit(stat('15A5', '生者の傷', 15, SELF));
+emit(stat('1C6', 'アラガンフィールド', 15, SELF));
+check('アラガンフィールド → 逆の色 (青)', scn('laser').color === 'black', scn('laser').color);
+emit(cast(BOSS, 'ネオエクスデス', 'C392', '無の氾濫', '5.000'));   // 本当
+check('氾濫が本当でも色は変わらない', scn('laser').color === 'black', scn('laser').color);
 
 console.log('18) 基準が未確定なら図は「?」のまま (known=false)');
 emit('260|t|0'); tick();
