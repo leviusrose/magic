@@ -73,13 +73,16 @@ body.debug #dm { padding-top: 22px; }
   height: 100%;
   /* 幅は高さから決まる (JS でも px を入れて aspect-ratio 非対応でも崩れないようにしている) */
   aspect-ratio: 19 / 25;
-  border: 1px solid transparent;
+  border: 1px solid rgba(120,140,170,0.16);
   border-radius: 4px;
   opacity: 0.5;
 }
-.dm-panel.has  { opacity: 1; }
-.dm-panel.cur  { background: rgba(80,120,200,0.20); border-color: #8fb2ff; }
-.dm-panel.cur.mine { background: rgba(255,210,90,0.16); border-color: #ffe783; }
+.dm-panel.has   { opacity: 1; }
+/* 答えが出たカードは輪郭を黄色にする (枠あり = もう決まっている) */
+.dm-panel.ready { border-color: #ffe783; }
+/* いま処理するカードは背景を敷く (輪郭は「確定」の合図に使うので触らない) */
+.dm-panel.cur       { background: rgba(80,120,200,0.22); }
+.dm-panel.cur.mine  { background: rgba(255,210,90,0.16); }
 /* 終わった図は薄くするだけ。位置は動かさない。 */
 .dm-panel.done { opacity: 0.22; }
 .dm-panel.soon { animation: panel-pulse 0.7s ease-in-out infinite alternate; }

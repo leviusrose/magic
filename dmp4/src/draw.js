@@ -6,6 +6,7 @@
 //   1. 自分の行き先 … 大きい黄色のマーカー + 中心からの点線。文字は入れない(つぶれるので)
 //   2. 全員の候補   … 小さい暗い点 (TH / D の文字だけ薄く)
 //   3. 危険/安置の形 … 円・ドーナツ・扇・帯
+//   答えが出たことの強調はカードの輪郭 (styles.css の .dm-panel.ready) が持つので、ここでは描かない
 //   「何をするか」の言葉は図の下の一言に持たせるので、図の中に長い文字を置かない。
 //   立ち位置は全部マップ基準なので、ボスの位置は描かない。
 //
@@ -201,7 +202,7 @@
     var rgb = isBlue ? '79,195,255' : '192,123,255';
     ctx.fillStyle = 'rgba(' + rgb + ',0.40)';
     ctx.fillRect(x, y, w, h);
-    ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(1.5, G.S * 0.014);
+    ctx.strokeStyle = 'rgba(' + rgb + ',0.95)'; ctx.lineWidth = Math.max(1.5, G.S * 0.012);
     ctx.strokeRect(x, y, w, h);
     txtBox(ctx, isBlue ? '青' : '紫', G.cx, G.cy, w * 0.7, h * 0.55, '#fff', 900);
     if (sc.showSide && sc.dir) {

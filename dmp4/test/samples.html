@@ -13,15 +13,16 @@
     border-top:1px solid #24344c; padding-top:13px; font-weight:800; }
   .note{ font-size:12.5px; color:#5f758f; margin:0 0 11px; line-height:1.6; }
   .strip{ display:flex; flex-wrap:wrap; gap:10px; }
-  .cell{ position:relative; background:#05090f; border:1px solid #243550;
+  .cell{ position:relative; background:#05090f; border:1px solid rgba(120,140,170,0.16);
     border-radius:10px; padding:6px 6px 4px; }
-  .cell.mine{ border-color:#8a7a3e; }
+  /* 本体と同じ: 答えが出たカードは輪郭が黄色 */
+  .cell.ready{ border-color:#ffe783; }
   .frame{ position:relative; width:132px; height:174px; }
   .frame canvas{ display:block; width:100%; height:100%; }
   .bar{ position:absolute; left:7%; right:7%; bottom:0.8%; height:3.2%; min-height:3px;
     background:rgba(120,140,170,0.22); border-radius:2px; overflow:hidden; }
   .bar i{ display:block; height:100%; background:#8fb2ff; border-radius:2px; }
-  .cell.mine .bar i{ background:#ffe783; }
+  .cell.ready .bar i{ background:#ffe783; }
   .cap{ font-size:11.5px; color:#7f92ab; text-align:center; margin-top:2px; max-width:132px;
     line-height:1.35; }
   code{ color:#8cdcff; }
@@ -37,6 +38,7 @@
     100% で着弾。
     アリーナの表現（床・八方位の線・N・英字＝丸／数字＝四角のマーカー）は <code>magic/ultimablaster</code> と同じで、
     <b>黄色いマーカーが自分の行き先</b>、小さい暗い点が全員の候補。
+    <b>カードの輪郭が黄色</b>になっているものは答えが確定した状態（枠なしはまだ待ち）。
   </p>
   <div id="out"></div>
 </div>
@@ -67,7 +69,7 @@
     return s;
   }
   function cell(strip, sc, label, cap, prog) {
-    var d = document.createElement('div'); d.className = 'cell' + (label.mine ? ' mine' : '');
+    var d = document.createElement('div'); d.className = 'cell' + (sc && sc.known ? ' ready' : '');
     var frame = document.createElement('div'); frame.className = 'frame';
     var cv = document.createElement('canvas'); cv.width = 266; cv.height = 350;
     frame.appendChild(cv);

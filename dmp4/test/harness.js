@@ -102,19 +102,22 @@ emit(cast(BOSS, 'ネオエクスデス', 'BB14', 'グランドクロス', '8.700
 check('GC カウント 1', st().gcCount === 1, st().gcCount);
 emit(stat('15A8', 'フォークライトニング', 51, SELF));
 check('早の枠に入る', st().steps.short != null && st().steps.long == null);
-check('早 = 散開', val('short') === '散開', val('short'));
 check('自分のギミック', st().steps.short.mine === true);
+check('1 セット目だけでは図は確定しない', scn('short').known === false);
 
 console.log('4) 水属性圧縮は真偽が逆 (本当 = 頭割り)');
 emit(stat('15A9', '水属性圧縮', 76, SELF));
 check('遅の枠に入る (76s >= 55)', st().steps.long != null);
-check('遅 = 頭割り', val('long') === '頭割り', val('long'));
 
 console.log('5) グランドクロス2回目(嘘): 加速度爆弾 36s = 早 → 動く');
 emit(tell('461'));   // ネオエクスデス 嘘
 emit(cast(BOSS, 'ネオエクスデス', 'BB14', 'グランドクロス', '8.700'));
 check('GC カウント 2', st().gcCount === 2, st().gcCount);
+advance(15000);
 emit(stat('15AA', '加速度爆弾', 36, SELF));
+check('デバフ 2 セット揃った', st().gcDebuffSets === 2, st().gcDebuffSets);
+check('早 = 散開 (GC1 のフォークは本当)', val('short', true).indexOf('散開') === 0, val('short', true));
+check('遅 = 頭割り (GC1 の水圧縮は本当)', val('long') === '頭割り', val('long'));
 check('早 = 散開 / 動く (今やること用)', val('short') === '散開 / 動く', val('short'));
 check('早 = 図の一言は 1 行で横並び', val('short', true) === '散開 動', val('short', true));
 
@@ -123,11 +126,13 @@ emit('260|t|0'); tick();
 emit(cast('4000AAAA', 'ケフカ', 'C2DC', 'おちょくりソウル', '5.000'));
 emit(tell('462'));
 emit(stat('15AA', '加速度爆弾', 61, SELF));
-check('遅 = 頭割り / 止まる (今やること用)', val('long') === '頭割り / 止まる', val('long'));
-check('遅 = 図の一言も 1 行で横並び', val('long', true) === '頭割り 止', val('long', true));
-check('早はまだ未確定', val('short') == null, val('short'));
 emit(stat('15A8', 'フォークライトニング', 51, OTHER));   // 他人ぶん → 時刻だけ入る
 check('他人のデバフでも早の時刻は入る', st().steps.short != null);
+check('1 セット目だけでは両方「?」', scn('short').known === false && scn('long').known === false);
+advance(15000);
+emit(stat('15AA', '加速度爆弾', 36, OTHER));             // 2 セット目
+check('遅 = 頭割り / 止まる (今やること用)', val('long') === '頭割り / 止まる', val('long'));
+check('遅 = 図の一言も 1 行で横並び', val('long', true) === '頭割り 止', val('long', true));
 check('早 = 頭割り (自分は無デバフ)', val('short') === '頭割り', val('short'));
 
 console.log('7) 呪詛の叫声は残り時間で 視線1 / 視線2 に分かれる');
@@ -248,10 +253,12 @@ emit(cast(BOSS, 'ネオエクスデス', 'BB14', 'グランドクロス', '8.700
 O.dmp4._setRole('dps');
 emit(tell('462'));                                          // ネオエクスデス 本当
 emit(stat('15A8', 'フォークライトニング', 51, SELF));        // 早 = 1人受け
+emit(stat('15A9', '水属性圧縮', 76, SELF));                  // 遅 = 本当なら頭割り
+check('ボスの位置は図に渡さない (全部マップ基準)', scn('short').bossAngle === undefined);
+advance(15000);
+emit(stat('15AA', '加速度爆弾', 36, OTHER));                 // 2 セット目で確定
 check('早/DPS 1人受け = 東(90)', pos('short') === '90', pos('short'));
 check('遅も同じ配置 (早/遅で共通)', JSON.stringify(scn('short').spread) === JSON.stringify(scn('long').spread));
-check('ボスの位置は図に渡さない (全部マップ基準)', scn('short').bossAngle === undefined);
-emit(stat('15A9', '水属性圧縮', 76, SELF));                  // 遅 = 本当なら頭割り
 check('遅/DPS 頭割り = 南(180)', pos('long') === '180', pos('long'));
 O.dmp4._setRole('th');
 check('遅/TH 頭割り = 北(0)', pos('long') === '0', pos('long'));
@@ -386,6 +393,8 @@ emit('260|t|0'); tick();
 emit(cast('4000AAAA', 'ケフカ', 'C2DC', 'おちょくりソウル', '5.000'));
 emit(tell('462'));
 emit(stat('15A8', 'フォークライトニング', 51, SELF));
+advance(15000);
+emit(stat('15AA', '加速度爆弾', 36, OTHER));                 // 2 セット目で確定
 check('CONFIG.role=dps なら 1人受けは東(90)', pos('short') === '90', pos('short'));
 O.dmp4._config.role = 'auto';
 check('auto に戻すとジョブ判定(th)の西(270)', pos('short') === '270', pos('short'));

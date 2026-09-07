@@ -156,6 +156,8 @@
       startAt: 0,
       lastEventAt: 0,
       gcCount: 0,
+      gcDebuffSets: 0,      // グランドクロスのデバフが何セット来たか (2 セットで自分の担当が確定)
+      lastGcDebuffAt: null,   // null = まだ 1 セットも来ていない (0 だと now()=0 のとき数え落とす)
       tell: { exdeath: null, chaos: null },
       steps: {
         laser: null,   // { at, color, dir, id }
@@ -369,6 +371,13 @@
       return;
     }
     if (id === ST.FORK || id === ST.WATER || id === ST.BOMB) {
+      // デバフは GC1 / GC2 の 2 セットに分かれて 15 秒ほど間があく。
+      // 1 セット目だけの段階だと、自分の担当がまだ来ていないのに他人ぶんで枠ができて
+      //「デバフ無し = 頭割り」と誤確定してしまうので、2 セット来るまでは確定させない。
+      if (state.lastGcDebuffAt == null || now() - state.lastGcDebuffAt > 1000) {
+        state.gcDebuffSets++;
+        state.lastGcDebuffAt = now();
+      }
       var wk = dur >= WINDOW_SPLIT ? 'long' : 'short';
       var w = s[wk] || (s[wk] = { at: at, total: dur * 1000, kind: null, truth: null, bomb: null, mine: false });
       w.at = at; w.total = dur * 1000;
@@ -559,6 +568,7 @@
       spread: { th: absAll(P.spread.th), dps: absAll(P.spread.dps) },
       action: null, bomb: w ? w.bomb : null, myAngles: [], known: false,
     };
+    if (state.gcDebuffSets < 2) return sc;    // 2 セット揃うまでは「?」のまま
     var act = windowAction(w);
     if (!act) return sc;
     sc.action = act;
@@ -702,8 +712,10 @@
       var prog = (left != null && total) ? (1 - left / total) : 0;
       pan.fill.style.width = Math.round(Math.max(0, Math.min(1, prog)) * 100) + '%';
 
+      var sc = scene(P.key);
       var cls = 'dm-panel';
       if (val != null) cls += ' has';
+      if (sc && sc.known) cls += ' ready';   // 答えが出た = カードの輪郭を黄色にする
       if (mine) cls += ' mine';
       if (done) cls += ' done';
       else if (left != null && !cur) { cur = { val: val, left: left, name: P.name }; cls += ' cur'; }
@@ -711,7 +723,6 @@
       pan.root.className = cls;
 
       // 図はシーンが変わったときだけ描き直す (canvas 8 枚を毎フレームは重い)
-      var sc = scene(P.key);
       var sig = sceneSig(sc) + '|' + shortVal + '|' + mine;
       if (pan.ctx && sig !== pan.sig) {
         pan.sig = sig;
@@ -779,7 +790,7 @@
   function renderDebug() {
     if (!CONFIG.debug || !els.debug) return;
     els.debug.textContent = 'log:' + diag.logLines + ' own:' + (ownId || '?') + '/' + (myRole() || '?') +
-      ' p4:' + state.active + ' GC:' + state.gcCount +
+      ' p4:' + state.active + ' GC:' + state.gcCount + '/' + state.gcDebuffSets +
       ' tell(E/C):' + tf(state.tell.exdeath) + '/' + tf(state.tell.chaos) +
       ' wound:' + (state.wound || '-') + ' dof:' + (state.dof || '-') +
       ' charge(i/t):' + tf(state.charged.ice) + '/' + tf(state.charged.thunder) +
@@ -794,6 +805,7 @@
       if (!ownRole) ownRole = 'dps';
       begin();
       state.gcCount = 3;
+      state.gcDebuffSets = 2;
       state.tell.exdeath = true; state.tell.chaos = false;
       state.wound = 'white'; state.dof = 'death';
       var t = now();
