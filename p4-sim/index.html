@@ -8,22 +8,34 @@
 <style>
   html, body { background:#0b1220; }
   body { margin:0; color:#cdddf2; font-family:"Segoe UI",system-ui,"Noto Sans JP",sans-serif;
-    padding:14px 16px 40px; }
-  h1 { font-size:18px; margin:0 0 3px; font-weight:800; }
-  .lead { font-size:12.5px; color:#5f758f; margin:0 0 14px; line-height:1.6; }
+    padding:10px 14px 14px; box-sizing:border-box; }
+  h1 { font-size:16px; margin:0; font-weight:800; display:inline; }
+  .lead { font-size:12px; color:#5f758f; margin:0 0 8px; line-height:1.5; display:inline; }
   .lead b { color:#8fb2ff; font-weight:700; }
   a { color:#8cdcff; }
+  header { margin-bottom:8px; }
 
   /* 左 = 図とタイムライン (残り幅を全部使う) / 右 = 操作パネル */
-  .layout { display:grid; grid-template-columns:minmax(0,1fr) 320px; gap:14px; align-items:start; }
+  .layout { display:grid; grid-template-columns:minmax(0,1fr) 320px; gap:12px; align-items:start; }
   .main { min-width:0; }
+
+  /* 広い画面ではビューポート全体を使う。余った縦はイベント一覧が埋める。 */
+  @media (min-width: 881px) {
+    html, body { height:100%; }
+    body { display:grid; grid-template-rows:auto minmax(0,1fr); overflow:hidden; }
+    .layout { min-height:0; height:100%; }
+    .main { height:100%; min-height:0; }
+    .mainInner { display:grid; grid-template-rows:auto minmax(0,1fr); min-height:0; height:100%; }
+    .tl { display:grid; grid-template-rows:auto auto minmax(0,1fr); min-height:0; }
+    aside { max-height:100%; overflow-y:auto; }
+  }
   @media (max-width: 880px) {
     .layout { grid-template-columns:minmax(0,1fr); }
-    body { padding:12px 10px 32px; }
+    body { padding:10px 10px 32px; }
   }
 
   /* オーバーレイ本体を閉じ込める枠。position:fixed をここで止める。
-     大きさは JS (fitStage) が幅から計算して入れる。 */
+     大きさは JS (fitStage) が幅と高さの両方から計算して入れる。 */
   .mainInner { max-width:100%; }
   .stage { position:relative; width:100%; background:#05090f; border:1px solid #283a54;
     border-radius:12px; overflow:hidden; box-sizing:border-box; }
@@ -51,7 +63,7 @@
   #spec.hidden tbody { visibility:hidden; }
 
   /* タイムライン */
-  .tl { margin-top:12px; }
+  .tl { margin-top:10px; }
   .tl-bar { position:relative; height:30px; background:#0d1726; border:1px solid #243550;
     border-radius:8px; overflow:hidden; }
   .tl-tick { position:absolute; top:0; bottom:0; width:1px; background:rgba(120,140,170,0.18); }
@@ -78,15 +90,23 @@
   ol.events li.k-resolve .what { color:#ffe783; font-weight:800; }
   ol.events li.past { opacity:0.38; }
   ol.events li.now { background:rgba(255,209,102,0.16); }
+
+  /* ★ ここは ol.events の height:300px より後ろに置く (同じ詳細度なので後勝ち)。
+       広い画面では .tl のグリッドが高さを決め、余った縦をイベント一覧が全部使う。 */
+  @media (min-width: 881px) {
+    ol.events { height:auto; min-height:0; }
+  }
 </style>
 </head>
 <body>
-  <h1>🃏 絶妖星乱舞 P4 カンペ シミュレータ</h1>
-  <p class="lead">
-    <a href="../dmp4/">magic/dmp4</a> のオーバーレイ本体をそのまま動かして P4 をイメトレするページ。
-    <b>ランダム</b>で真偽・自分のデバフ・傷の色などを引き直します。タイムラインは cactbot の
-    絶妖星乱舞データ準拠で、<b>敵の詠唱・着弾・デバフ付与・自分が動く瞬間</b>を実時間で流します。
-  </p>
+  <header>
+    <h1>🃏 絶妖星乱舞 P4 カンペ シミュレータ</h1>
+    <span class="lead">
+      — <a href="../dmp4/">magic/dmp4</a> の本体をそのまま動かして P4 をイメトレするページ。
+      <b>ランダム</b>で真偽・自分のデバフ・傷の色を引き直します。
+      タイムラインは cactbot 準拠で、<b>敵の詠唱・着弾・デバフ付与・自分が動く瞬間</b>を実時間で流します。
+    </span>
+  </header>
 
   <div class="layout">
     <div class="main" id="main">
@@ -175,32 +195,41 @@
     var el = function (id) { return document.getElementById(id); };
     var END = 120;                     // タイムラインの長さ(秒)
     var PANEL_AR = 0.76;               // 図 1 枚の 幅/高さ (dmp4.js と揃える)
-    var MAX_W = { 1: 1400, 2: 760 };   // これ以上は広げない (図が大きすぎるので)
+    var MIN_EVENTS = 150;              // イベント一覧に最低これだけ縦を残す
 
     // 狭い画面は 1 段だと図が小さくなりすぎるので 2 段で始める
     if (window.innerWidth < 880) el('rows').value = '2';
 
     // --- 図の大きさ: 枠の幅から「8 枚 (or 4 枚) がちょうど収まる高さ」を逆算する ---
+    // 図の大きさは「幅から出る上限」と「高さから出る上限」の小さいほうにする。
+    // 幅に固定の上限を置かないので、広い画面ではそのまま大きくなる。
     function fitStage() {
       var rows = parseInt(el('rows').value, 10) === 2 ? 2 : 1;
-      var stage = el('stage');
+      var stage = el('stage'), inner = el('mainInner'), main = el('main');
       var cols = rows === 1 ? 8 : 4;
-      // 幅は「図 + タイムライン」の箱に入れる。stage は width:100% でそれに追従するので、
-      // タイムラインと図の幅が必ず揃う。
-      var avail = el('main').clientWidth;
-      var W = Math.max(280, Math.min(avail, MAX_W[rows]));
-      el('mainInner').style.width = Math.round(W) + 'px';
-      var panelW = (W - 4 - 2 * (cols - 1) - 2) / cols;   // #dm の padding と gap と枠線
-      var rowH = panelW / PANEL_AR;
+      var chrome = 4 + 2 * (cols - 1) + 2;        // #dm の padding + gap + 枠線
+      var availW = main.clientWidth;
+      var nowH = 26;
+      var tlH = 30 + 14 + 10 + 8 + 2;             // バー + 目盛り + margin
 
-      function setH(nowH) {
-        stage.style.height = Math.round(rowH * rows + 2 * (rows - 1) + nowH + 5) + 'px';
+      var byW = (availW - chrome) / cols / PANEL_AR;
+      // ビューポート全体を使うレイアウト (881px 以上) のときだけ高さでも制限する
+      var full = window.innerWidth > 880 && main.clientHeight > 240;
+      var byH = full
+        ? (main.clientHeight - tlH - MIN_EVENTS - nowH - 5 - 2 * (rows - 1)) / rows
+        : Infinity;
+      var rowH = Math.max(60, Math.min(byW, byH));
+
+      function apply(nh) {
+        var W = Math.round(rowH * PANEL_AR * cols + chrome);
+        inner.style.width = Math.min(W, Math.round(availW)) + 'px';
+        stage.style.height = Math.round(rowH * rows + 2 * (rows - 1) + nh + 5) + 'px';
         O.dmp4._setRows(rows);
       }
-      setH(26);
+      apply(nowH);
       // 「今やること」行の高さは vmin 依存なので、実測して 1 回だけ補正する
       var nowEl = el('dm-now');
-      if (nowEl && nowEl.offsetHeight) setH(nowEl.offsetHeight + 2);
+      if (nowEl && nowEl.offsetHeight) apply(nowEl.offsetHeight + 2);
     }
 
     // --- 担当のセレクトを埋める ---
