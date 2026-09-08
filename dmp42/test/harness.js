@@ -463,6 +463,44 @@ check('解決時刻は 51s 後 ≒ 36s 後 でほぼ同じ',
   Math.abs((st().steps.short.at - t0) - 51000) < 1500, (st().steps.short.at - t0));
 
 
+console.log('26) 無の氾濫: 詠唱が来てもプログレスバーが巻き戻らない');
+emit('260|t|0'); tick();
+emit(cast('4000AAAA', 'ケフカ', 'C2DC', 'おちょくりソウル', '5.000'));
+const lz0 = NOW;
+emit(stat('15A6', '死者の傷', 15, SELF));
+emit(stat('1558', '死の超越', 15, SELF));
+const lTotal1 = st().steps.laser.total;
+check('確定時は傷の残り 15s ぶん', Math.round(lTotal1 / 1000) === 15, lTotal1);
+advance(6000);
+const progBefore = 1 - (st().steps.laser.at - NOW) / st().steps.laser.total;
+emit(cast(BOSS, 'ネオエクスデス', 'C393', '無の氾濫', '5.000'));
+const lz = st().steps.laser;
+const progAfter = 1 - (lz.at - NOW) / lz.total;
+// 傷の残り (仮の締め切り) より本当の着弾のほうが早いので total は縮むが、
+// from を持ち続けているのでバーの進み具合は前に進むだけ = 巻き戻らない。
+check('バーは巻き戻らない', progAfter >= progBefore,
+  progBefore.toFixed(3) + ' -> ' + progAfter.toFixed(3));
+check('total は 確定 -> 着弾 の 11s', Math.round(lz.total / 1000) === 11, lz.total);
+check('着弾は詠唱開始の 5s 後', Math.round((lz.at - lz0 - 6000) / 1000) === 5, lz.at - lz0);
+check('バーは 6/11 付近まで進んでいる',
+  Math.abs((1 - (lz.at - NOW) / lz.total) - 6 / 11) < 0.02, 1 - (lz.at - NOW) / lz.total);
+
+console.log('27) 早送り再生 (timeScale) でも 早/遅・視線1/2 の判別が壊れない');
+O.dmp4._config.timeScale = 4;
+emit('260|t|0'); tick();
+emit(cast('4000AAAA', 'ケフカ', 'C2DC', 'おちょくりソウル', '5.000'));
+emit(tell('462'));
+emit(stat('15A9', '水属性圧縮', 50.5 / 4, SELF));     // GC1 の早 (12.6s)
+emit(stat('15A7', '呪詛の叫声', 59.5 / 4, OTHER));    // 視線1 (14.9s)
+advance(15000 / 4);
+emit(stat('15A8', 'フォークライトニング', 60.6 / 4, SELF));  // GC2 の遅 (15.2s)
+emit(stat('15A7', '呪詛の叫声', 68.6 / 4, SELF));     // 視線2 (17.2s)
+check('4倍でも早の枠に入る', st().steps.short != null && st().steps.short.mine === true);
+check('4倍でも遅の枠に入る', st().steps.long != null && st().steps.long.mine === true);
+check('4倍でも視線1は他人ぶん', st().steps.gaze1 != null && st().steps.gaze1.mine === false);
+check('4倍でも視線2は自分ぶん', st().steps.gaze2 != null && st().steps.gaze2.mine === true);
+O.dmp4._config.timeScale = 1;
+
 console.log(`\n結果: ${pass} pass / ${fail} fail`);
 process.exit(fail ? 1 : 0);
 }

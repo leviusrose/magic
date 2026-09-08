@@ -285,6 +285,8 @@
     function playNow() {
       stop();
       var sp = speed();
+      // ログの秒数を 1/sp にして流すので、オーバーレイ内部の固定ディレイも同じだけ縮める
+      O.dmp4._config.timeScale = sp;
       setSelf();
       O.dmp4._setRole(scn.role);
       startedAt = performance.now();
@@ -294,7 +296,9 @@
           e.lines.forEach(function (l) { dispatch(scaleLine(l, sp)); });
         }, (e.t * 1000) / sp));
       });
-      el('status').textContent = '再生中（' + (sp === 1 ? '等速' : sp + '倍') + '）';
+      // 早送り中はカンペの残り秒も 1/sp になる (実時間の残りを出しているため)
+      el('status').textContent = sp === 1 ? '再生中（等速）'
+        : '再生中（' + sp + '倍・カンペの残り秒は 1/' + sp + '）';
       loop();
     }
 

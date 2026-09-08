@@ -84,6 +84,9 @@
     showStatus: false,  // 左下に自キャラ検出状況
     debug: false,       // 上部に診断バナー + 未知 ID をコンソールへ
     demo: false,        // ゲームログ無しで表示確認
+    // 早送り再生用。ログ側の秒数を 1/n にして流すシミュレータが、
+    // ここで固定値のディレイも同じだけ縮めるために使う。実戦では 1 のまま。
+    timeScale: 1,
   };
 
   // ===== ID (cactbot dancing_mad 由来) =====
@@ -128,6 +131,16 @@
   var TANK_JOBS = { 1: 1, 3: 1, 19: 1, 21: 1, 32: 1, 37: 1 };          // GLA MRD PLD WAR DRK GNB
   var HEAL_JOBS = { 6: 1, 24: 1, 28: 1, 33: 1, 40: 1 };                // CNJ WHM SCH AST SGE
 
+  // マジックアウト: 詠唱明け +0.3s で予兆が出て真偽が確定し、その 5.1 秒後に着弾する
+  // (cactbot dancing_mad: マジックアウト 1203.8 → サンダガ/ブリザガ 1208.9)。
+  // 答えは予兆で決まるが、実際に避け終わるまでカンペを消したくないので
+  // パネルの締め切り (= プログレスバーの 100%) は着弾側に置く。
+  var MANA_TELL_MS = 300;
+  var MANA_HIT_MS = 5100;
+  // 早/遅・視線1/視線2 の判別しきい値。早送り再生ではログの秒数が 1/n になるので
+  // しきい値も同じだけ縮めないと、遅の枠が全部「早」に落ちて ⑤⑥ が出なくなる。
+  function windowSplit() { return WINDOW_SPLIT / (CONFIG.timeScale || 1); }
+  function shriekSplit() { return SHRIEK_SPLIT / (CONFIG.timeScale || 1); }
   var WINDOW_SPLIT = 55;     // 早(51/36) と 遅(76/61) の境目(秒)
   var SHRIEK_SPLIT = 65;     // 視線1(60) と 視線2(69) の境目(秒)
   var RESET_AFTER_SEC = 120;
@@ -317,8 +330,14 @@
 
     if (AB.FLOOD.indexOf(id) >= 0) { updateLaser(id, castMs); return; }
     if (id === AB.MANA_RELEASE) {
-      // 詠唱明け(+0.3s)の予兆で確定するので、その時刻に評価する
-      state.steps.mana = { at: now() + castMs + 300, total: castMs + 300, ice: null, thunder: null };
+      var sc = CONFIG.timeScale || 1;
+      var t0 = now();
+      var hitAt = t0 + castMs + MANA_HIT_MS / sc;
+      state.steps.mana = {
+        at: hitAt, total: hitAt - t0,
+        readyAt: t0 + castMs + MANA_TELL_MS / sc,   // ここで真偽が確定する
+        ice: null, thunder: null,
+      };
       return;
     }
     if (CONFIG.debug && (id === AB.INFERNO || id === AB.TSUNAMI || id === AB.MANA_CHARGE)) {
@@ -367,7 +386,7 @@
     var s = state.steps;
 
     if (id === ST.SHRIEK) {
-      var gk = dur < SHRIEK_SPLIT ? 'gaze1' : 'gaze2';
+      var gk = dur < shriekSplit() ? 'gaze1' : 'gaze2';
       var g = s[gk] || (s[gk] = { at: at, from: now(), truth: state.tell.exdeath, players: [], mine: false });
       g.at = at; g.total = at - g.from;   // バーは「最初に見えた時から解決まで」で伸ばす
       if (g.truth == null) g.truth = state.tell.exdeath;
@@ -384,7 +403,7 @@
         state.gcDebuffSets++;
         state.lastGcDebuffAt = now();
       }
-      var wk = dur >= WINDOW_SPLIT ? 'long' : 'short';
+      var wk = dur >= windowSplit() ? 'long' : 'short';
       var w = s[wk] || (s[wk] = { at: at, from: now(), kind: null, truth: null, bomb: null, mine: false });
       w.at = at; w.total = at - w.from;   // 後から別のデバフが来てもバーが飛ばないようにする
       if (mine) {
@@ -410,7 +429,7 @@
         if (!state.active) return;
         state.charged[key] = state.liveTruth[key];
         if (CONFIG.debug) console.log('[dmp4] チャージ', key, state.charged[key]);
-      }, 250);
+      }, 250 / (CONFIG.timeScale || 1));
       touch(); return;
     }
     if (mine) {
@@ -460,17 +479,22 @@
     return { color: color, dir: dir };
   }
   // デバフが揃った時点で色を確定。詠唱では左右とタイマーだけ足す。
+  // バーは「最初に見えた時 → 解決」で伸ばす。詠唱で at が動いても total を
+  // 詠唱時間に置き換えてしまうとバーが 0% に巻き戻るので、from を持ち続ける。
   function updateLaser(abilId, castMs, durMs) {
     var s = state.steps;
     var color = needColor();
     if (color == null) return;
+    var l = s.laser || (s.laser = { from: now(), at: now(), total: 0, color: null, dir: null });
+    l.color = color;
     if (abilId == null) {
-      if (!s.laser) s.laser = { at: now() + durMs, total: durMs, color: color, dir: null };
-      else { s.laser.color = color; s.laser.at = now() + durMs; s.laser.total = durMs; }
-      return;
+      l.at = now() + durMs;                       // 傷デバフが切れるまでを仮の締め切りにする
+    } else {
+      var lz = computeLaser(abilId);
+      l.dir = lz.dir; l.id = abilId;
+      l.at = now() + castMs;                      // 詠唱が来たら本当の着弾時刻に差し替える
     }
-    var lz = computeLaser(abilId);
-    s.laser = { at: now() + castMs, total: castMs, color: lz.color, dir: lz.dir, id: abilId };
+    l.total = l.at - l.from;
   }
 
   // マジックアウト: チャージ時の予兆の真偽と、出た瞬間の予兆の真偽が一致なら「その予兆は本当」。
@@ -699,7 +723,7 @@
 
     // マジックアウトは詠唱明けの瞬間に確定させる
     var m = state.steps.mana;
-    if (m && m.ice == null && t >= m.at) {
+    if (m && m.ice == null && t >= (m.readyAt != null ? m.readyAt : m.at)) {
       var r = computeManaOut();
       if (r) { m.ice = r.ice; m.thunder = r.thunder; }
     }

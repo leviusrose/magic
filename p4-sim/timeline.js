@@ -18,27 +18,38 @@
     gc1Hit: 18.9, gc2Hit: 33.7, gc3Hit: 48.6,         // グランドクロス (8.7s 詠唱)
     gc3Debuff: 49.6,
     chaos1Hit: 23.9, chaos2Hit: 38.7,                 // ほのお/つなみ (8.7s 詠唱)
-    floodHit: 60.7, antilight: 61.1,                  // 無の氾濫 (5.0s 詠唱)
+    floodHit: 60.7, antilight: 61.1,                  // 無の氾濫 (5.0s 詠唱) → アンチライト/デスエッジ
+    deathSurge: 64.9,                                 // デスサージ (BB1C/BB1D)
     manaCharge: 69.2,
-    thunder1: 77.5, blizzard1: 95.5,
+    shortRes: 69.5,                                   // ★早の枠が解決 = デスボルト/デスウェイブ 1 回目
+    thunder1: 77.5,
+    gaze1Res: 78.5,                                   // ★視線1 = デスシュリーク 1 回目
+    fireCast: 85.2,                                   // ★混沌の炎の詠唱開始 (5.0s) = ここで位置が確定
     upsurge: 87.5,
-    strayFlames: 90.2, straySpray: 113.0,             // 混沌の炎/水 の着弾
+    strayFlames: 90.2,                                // 混沌の炎 着弾
+    longRes: 94.4,                                    // ★遅の枠が解決 = デスボルト/デスウェイブ 2 回目
+    blizzard1: 95.5,
+    gaze2Res: 102.4,                                  // ★視線2 = デスシュリーク 2 回目
+    waterCast: 108.0,                                 // ★混沌の水の詠唱開始 (5.0s) = ここで位置が確定
     manaReleaseHit: 108.8,                            // マジックアウト (6.7s 詠唱)
-    manaReleaseTells: 113.9,
+    straySpray: 113.0,                                // 混沌の水 着弾
+    thunder2: 113.9,                                  // もりもりサンダガ/ひろげるブリザガ 着弾
     enrage: 118.2,
   };
   var CAST = { gc: 8.7, chaos: 8.7, flood: 5.0, manaRelease: 6.7, phase: 5.0 };
 
   // ---- デバフの残り時間 (秒) ----
-  // GC1 で付くもの: 呪詛 60 / 雷水 76 or 51 / 加速度 76 or 51
-  // GC2 で付くもの: 呪詛 69 / 雷水 61 or 36 / 加速度 61 or 36
-  // どちらで付いても「切れる時刻」は 早 ≈ GC1+51 / 遅 ≈ GC1+76 に揃う。
+  // ★ 実測値ではなく「解決時刻 − 付与時刻」で逆算した値。解決時刻は cactbot の
+  //   dancing_mad タイムライン (デスボルト/デスウェイブ/デスシュリーク、混沌の炎/水の詠唱開始)
+  //   をそのまま採用しているので、カウントダウンが 0 になる瞬間 = 実際に処理する瞬間になる。
+  //   ゲームが送ってくる実際の秒数は整数かもしれないが、その場合でも誤差は 0.5 秒以内。
+  // 付与は GC1 = 19.0 / GC2 = 33.8、カオスは着弾と同時 (23.9 / 38.7)。
   var DUR = {
-    shriek1: 60, shriek2: 69,
-    short1: 51, short2: 36,      // GC1 で早 / GC2 で早
-    long1: 76, long2: 61,        // GC1 で遅 / GC2 で遅
-    entropy1: 60, entropy2: 45,  // 混沌の炎 (1回目に詠唱 / 2回目に詠唱)
-    fluid1: 84, fluid2: 69,      // 混沌の水
+    shriek1: 59.5, shriek2: 68.6,   // 視線 → 78.5 / 102.4
+    short1: 50.5, short2: 35.7,     // 早の枠 → どちらで付いても 69.5
+    long1: 75.4, long2: 60.6,       // 遅の枠 → どちらで付いても 94.4
+    entropy1: 61.3, entropy2: 46.5, // 混沌の炎 → どちらで付いても 85.2
+    fluid1: 84.1, fluid2: 69.3,     // 混沌の水 → どちらで付いても 108.0
     wound: 15,
   };
 
@@ -190,7 +201,7 @@
     var fl = FLOOD_IDS.filter(function (x) { return x.id === scn.flood; })[0] || FLOOD_IDS[0];
     add(T.floodHit - CAST.flood, 'cast', 'ネオエクスデス', '無の氾濫 詠唱 (' + fl.label + ')', [cast(N, 'ネオエクスデス', scn.flood, '無の氾濫', CAST.flood)]);
     add(T.floodHit, 'resolve', 'ネオエクスデス', '無の氾濫 着弾 ← ① レーザーに入る', [], true);
-    add(T.antilight, 'hit', 'ネオエクスデス', 'アンチライト', [abil(N, 'ネオエクスデス', 'C394', 'ホワイトアンチライト')]);
+    add(T.antilight, 'hit', 'ネオエクスデス', 'アンチライト / デスエッジ', [abil(N, 'ネオエクスデス', 'C394', 'ホワイトアンチライト')]);
 
     // --- マジックチャージ ---
     add(T.manaCharge, 'hit', 'ケフカ', 'マジックチャージ (予兆を記憶)', [
@@ -200,27 +211,31 @@
     ]);
 
     // --- 自分が動く瞬間 (デバフ切れ) ---
-    add(T.gc1Hit + DUR.short1, 'resolve', '—', '② 早 雷水/加速度', [], true);
-    add(T.gc1Hit + DUR.shriek1, 'resolve', '—', '③ 視線1', [], true);
-    add(fireExp, 'resolve', '—', '④ 炎 (位置を取る)', [], true);
+    // ★ デバフ切れの時刻は cactbot のタイムラインにある実際の技 (デスボルト/デスウェイブ =
+    //   雷水、デスシュリーク = 視線) の時刻をそのまま使う。DUR はそこから逆算してある。
+    add(T.deathSurge, 'hit', 'ネオエクスデス', 'デスサージ', []);
+    add(T.shortRes, 'resolve', '—', '② 早 雷水/加速度 ← デスボルト/デスウェイブ', [], true);
     add(T.thunder1, 'hit', 'ケフカ', 'もりもりサンダガ 着弾', [abil(K, 'ケフカ', 'BA9F', 'もりもりサンダガ')]);
+    add(T.gaze1Res, 'resolve', '—', '③ 視線1 ← デスシュリーク', [], true);
+    add(fireExp, 'resolve', 'カオス', '④ 炎 (位置を取る) ← 混沌の炎 詠唱開始', [], true);
     add(T.upsurge, 'hit', 'ケフカ', 'アルテマアップサージ', [abil(K, 'ケフカ', 'C24A', 'アルテマアップサージ')]);
     add(T.strayFlames, 'hit', 'カオス', '混沌の炎 着弾', [abil(C, 'カオス', 'BB22', '混沌の炎')]);
-    add(T.gc1Hit + DUR.long1, 'resolve', '—', '⑤ 遅 雷水/加速度', [], true);
+    add(T.longRes, 'resolve', '—', '⑤ 遅 雷水/加速度 ← デスボルト/デスウェイブ', [], true);
     add(T.blizzard1, 'hit', 'ケフカ', 'ひろげるブリザガ 着弾', [abil(K, 'ケフカ', 'BA98', 'ひろげるブリザガ')]);
-    add(T.gc2Hit + DUR.shriek2, 'resolve', '—', '⑥ 視線2', [], true);
+    add(T.gaze2Res, 'resolve', '—', '⑥ 視線2 ← デスシュリーク', [], true);
 
     // --- マジックアウト ---
     add(T.manaReleaseHit - CAST.manaRelease, 'cast', 'ケフカ', 'マジックアウト 詠唱', [
       head(HEAD_ICE[scn.liveIce]), head(HEAD_THU[scn.liveThunder]),
       cast(K, 'ケフカ', 'BAA5', 'マジックアウト', CAST.manaRelease),
     ]);
-    add(waterExp, 'resolve', '—', '⑧ つなみ (位置を取る)', [], true);
-    add(T.manaReleaseHit, 'resolve', 'ケフカ', 'マジックアウト 着弾 ← ⑦ 扇/直線', [], true);
+    add(waterExp, 'resolve', 'カオス', '⑧ つなみ (位置を取る) ← 混沌の水 詠唱開始', [], true);
+    add(T.manaReleaseHit, 'hit', 'ケフカ', 'マジックアウト 着弾 → 扇/直線の予兆が出る (⑦ の答えが確定)', []);
     add(T.straySpray, 'hit', 'カオス', '混沌の水 着弾', [abil(C, 'カオス', 'BB24', '混沌の水')]);
-    add(T.manaReleaseTells, 'hit', 'ケフカ', 'サンダガ/ブリザガ 着弾', [
+    // 予兆が出てから着弾まで 5.1 秒ある。⑦ を処理し終わるのはここ。
+    add(T.thunder2, 'resolve', 'ケフカ', '⑦ 扇/直線 着弾 ← サンダガ/ブリザガ', [
       abil(K, 'ケフカ', 'BA9F', 'もりもりサンダガ'), abil(K, 'ケフカ', 'BA98', 'ひろげるブリザガ'),
-    ]);
+    ], true);
 
     ev.sort(function (x, y) { return x.t - y.t; });
     return ev;
