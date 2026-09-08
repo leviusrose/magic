@@ -92,8 +92,8 @@ body.debug #dm { padding-top: 22px; }
 /* 答えが出たカードは輪郭を黄色にする (枠あり = もう決まっている) */
 .dm-panel.ready { border-color: #ffe783; }
 /* いま処理するカードは背景を敷く (輪郭は「確定」の合図に使うので触らない) */
-.dm-panel.cur       { background: rgba(80,120,200,0.22); }
-.dm-panel.cur.mine  { background: rgba(255,210,90,0.16); }
+/* いま処理するパネルの背景塗りは無し (ユーザ要望)。
+   「確定」は枠の黄色、「もうすぐ」は soon の光りと残り秒/バーの色で分かる。 */
 /* 終わった図は薄くするだけ。位置は動かさない。 */
 .dm-panel.done { opacity: 0.22; }
 .dm-panel.soon { animation: panel-pulse 0.7s ease-in-out infinite alternate; }

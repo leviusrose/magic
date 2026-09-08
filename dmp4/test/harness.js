@@ -208,7 +208,7 @@ emit(head('02A4'));                       // ブリザガ 本当
 emit(head('02A5'));                       // サンダガ 嘘
 emit(stat('5CC', 'ブリザガチャージ', 60, '4000AAAA'));
 emit(stat('5CD', 'サンダガチャージ', 60, '4000AAAA'));
-await sleep(400);                         // 頭マーカー待ちのスナップショット
+advance(2000);                            // チャージ直後 1 秒の窓を抜ける (実戦では 33 秒あく)
 check('チャージ 氷 = 本当', st().charged.ice === true, st().charged.ice);
 check('チャージ 雷 = 嘘', st().charged.thunder === false, st().charged.thunder);
 emit(head('02A4'));                       // 出る側も 氷 本当 → 一致 = 本当
@@ -485,21 +485,64 @@ check('着弾は詠唱開始の 5s 後', Math.round((lz.at - lz0 - 6000) / 1000)
 check('バーは 6/11 付近まで進んでいる',
   Math.abs((1 - (lz.at - NOW) / lz.total) - 6 / 11) < 0.02, 1 - (lz.at - NOW) / lz.total);
 
-console.log('27) 早送り再生 (timeScale) でも 早/遅・視線1/2 の判別が壊れない');
-O.dmp4._config.timeScale = 4;
-emit('260|t|0'); tick();
+console.log('27) CONFIG.clock で時計を差し替えられる (任意の時点に飛ばすため)');
+let simT = 500000;
+O.dmp4._config.clock = function () { return simT; };
+emit('260|t|0');
 emit(cast('4000AAAA', 'ケフカ', 'C2DC', 'おちょくりソウル', '5.000'));
 emit(tell('462'));
-emit(stat('15A9', '水属性圧縮', 50.5 / 4, SELF));     // GC1 の早 (12.6s)
-emit(stat('15A7', '呪詛の叫声', 59.5 / 4, OTHER));    // 視線1 (14.9s)
-advance(15000 / 4);
-emit(stat('15A8', 'フォークライトニング', 60.6 / 4, SELF));  // GC2 の遅 (15.2s)
-emit(stat('15A7', '呪詛の叫声', 68.6 / 4, SELF));     // 視線2 (17.2s)
-check('4倍でも早の枠に入る', st().steps.short != null && st().steps.short.mine === true);
-check('4倍でも遅の枠に入る', st().steps.long != null && st().steps.long.mine === true);
-check('4倍でも視線1は他人ぶん', st().steps.gaze1 != null && st().steps.gaze1.mine === false);
-check('4倍でも視線2は自分ぶん', st().steps.gaze2 != null && st().steps.gaze2.mine === true);
-O.dmp4._config.timeScale = 1;
+emit(stat('15A9', '水属性圧縮', 50.5, SELF));      // GC1 の早
+emit(stat('15A7', '呪詛の叫声', 59.5, OTHER));     // 視線1
+check('差し替えた時計で at が入る',
+  Math.abs(st().steps.short.at - (simT + 50500)) < 1, st().steps.short.at - simT);
+simT += 14800;                                     // GC2 まで進める (rAF は回さない)
+emit(stat('15A8', 'フォークライトニング', 60.6, SELF));   // GC2 の遅
+emit(stat('15A7', '呪詛の叫声', 68.6, SELF));      // 視線2
+check('早の枠に入る', st().steps.short != null && st().steps.short.mine === true);
+check('遅の枠に入る', st().steps.long != null && st().steps.long.mine === true);
+check('視線1は他人ぶん', st().steps.gaze1 != null && st().steps.gaze1.mine === false);
+check('視線2は自分ぶん', st().steps.gaze2 != null && st().steps.gaze2.mine === true);
+check('早と遅の解決はどちらも同じ時刻に揃う',
+  Math.abs((st().steps.long.at - st().steps.short.at) - 24900) < 100,
+  st().steps.long.at - st().steps.short.at);
+O.dmp4._config.clock = null;
+
+console.log('27b) チャージのスナップは頭マーカーの前後どちらでも取れる (タイマー無し)');
+[['予兆が先', ['head', 'chg']], ['チャージが先', ['chg', 'head']]].forEach(function (c) {
+  emit('260|t|0'); tick();
+  emit(cast('4000AAAA', 'ケフカ', 'C2DC', 'おちょくりソウル', '5.000'));
+  c[1].forEach(function (step) {
+    if (step === 'head') { emit(head('02A4')); emit(head('02A5')); }
+    else { emit(stat('5CC', 'ブリザガチャージ', 60, '4000AAAA')); emit(stat('5CD', 'サンダガチャージ', 60, '4000AAAA')); }
+  });
+  check(c[0] + ' → 溜 氷=真 雷=偽',
+    st().charged.ice === true && st().charged.thunder === false,
+    st().charged.ice + '/' + st().charged.thunder);
+});
+
+console.log('28) ⑦ はマジックチャージの時点でパネルが出る (溜まった予兆の仮表示)');
+emit('260|t|0'); tick();
+emit(cast('4000AAAA', 'ケフカ', 'C2DC', 'おちょくりソウル', '5.000'));
+check('チャージ前は枠が無い', st().steps.mana == null, st().steps.mana);
+emit(head('02A4'));                       // ブリザガ 本当
+emit(head('02A5'));                       // サンダガ 嘘
+emit(stat('5CC', 'ブリザガチャージ', 60, '4000AAAA'));
+emit(stat('5CD', 'サンダガチャージ', 60, '4000AAAA'));
+check('チャージで枠ができる', st().steps.mana != null);
+check('答えはまだ ?', val('mana') === '?', val('mana'));
+check('未確定のまま', scn('mana').known === false);
+check('溜まった予兆は仮表示できる',
+  scn('mana').charged != null && scn('mana').charged.ice === true &&
+  scn('mana').charged.thunder === false, JSON.stringify(scn('mana').charged));
+const mFrom = st().steps.mana.from;
+advance(33000);
+emit(cast('4000AAAA', 'ケフカ', 'BAA5', 'マジックアウト', '6.700'));
+check('詠唱が来ても from は動かない', st().steps.mana.from === mFrom);
+check('total はチャージ → 着弾の 44.8s',
+  Math.round(st().steps.mana.total / 1000) === 45, st().steps.mana.total);
+advance(7100);
+check('予兆で答えが出る', val('mana') !== '?', val('mana'));
+check('着弾までパネルは残る', st().steps.mana.at - NOW > 4000, st().steps.mana.at - NOW);
 
 console.log(`\n結果: ${pass} pass / ${fail} fail`);
 process.exit(fail ? 1 : 0);

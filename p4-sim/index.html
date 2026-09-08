@@ -65,10 +65,17 @@
   /* タイムライン */
   .tl { margin-top:10px; }
   .tl-bar { position:relative; height:30px; background:#0d1726; border:1px solid #243550;
+    cursor:pointer; touch-action:none;
     border-radius:8px; overflow:hidden; }
   .tl-tick { position:absolute; top:0; bottom:0; width:1px; background:rgba(120,140,170,0.18); }
   .tl-ev { position:absolute; top:4px; width:3px; height:10px; border-radius:2px; }
   .tl-head { position:absolute; top:0; bottom:0; width:2px; background:#ffd166; box-shadow:0 0 6px #ffd166; }
+  /* つかむ場所が分かるように、再生位置に丸いつまみを出す */
+  .tl-head::after { content:''; position:absolute; left:50%; bottom:-4px; width:11px; height:11px;
+    transform:translateX(-50%); border-radius:50%; background:#ffd166; box-shadow:0 0 5px #ffd166; }
+  .tl-bar.grabbing { cursor:grabbing; }
+  ol.events li { cursor:pointer; }
+  ol.events li:hover { background:rgba(120,140,170,0.10); }
   .tl-labels { position:relative; height:14px; font-size:10px; color:#5f758f; }
   .tl-labels span { position:absolute; transform:translateX(-50%); }
 
@@ -89,7 +96,9 @@
   ol.events li.k-debuff .what { color:#8cdcff; }
   ol.events li.k-resolve .what { color:#ffe783; font-weight:800; }
   ol.events li.past { opacity:0.38; }
-  ol.events li.now { background:rgba(255,209,102,0.16); }
+  /* 黄色い塗りつぶしは使わず、左端のアクセントだけで現在行を示す */
+  ol.events li.now { box-shadow:inset 3px 0 0 #ffd166; }
+  ol.events li.now .t { color:#ffd166; }
 
   /* ★ ここは ol.events の height:300px より後ろに置く (同じ詳細度なので後勝ち)。
        広い画面では .tl のグリッドが高さを決め、余った縦をイベント一覧が全部使う。 */
@@ -141,7 +150,9 @@
         </div>
         <div class="row">
           <button class="go" id="play">▶ 再生</button>
-          <button id="stop">■ 停止</button>
+          <button id="back">⏪ 5s</button>
+          <button id="fwd">5s ⏩</button>
+          <button id="stop">■ 先頭へ</button>
         </div>
         <div class="row">
           <label>段数</label>
@@ -172,7 +183,9 @@
 
       <div class="card hint">
         図の大きさは枠の幅から自動で決まります（ウィンドウを広げると大きくなります）。
-        早送りするとデバフの残り時間もその分だけ縮んで表示されるので、タイミングの練習は等速で。
+        タイムラインのバーはつかんで動かせます（行をクリックでもその時点へ）。巻き戻すとそこまでの
+        デバフが全部流し直されるので、途中から何度でも練習できます。
+        スペースで再生/一時停止、←→ で 5 秒。早送りしても残り時間は実際の秒数で出ます。
       </div>
     </aside>
   </div>
@@ -240,9 +253,19 @@
 
     var scn = NS.randomScenario();
     var script = [];
-    var timers = [];
     var raf = null;
-    var startedAt = null;
+
+    // ---- 再生エンジン ----
+    // simT (ms) がシミュレーション上の現在時刻で、これが唯一の真実。
+    // オーバーレイの時計もこれに差し替えるので、
+    //   ・早送りしてもデバフの残り時間は「実際の秒数」で表示される
+    //   ・任意の時点に飛べる (0 から その時刻まで一気に流し直すだけ)
+    // が両方成り立つ。ログの秒数を速度で割る細工は不要になった。
+    var simT = 0;        // 現在時刻 (ms)
+    var cursor = 0;      // 次に流すイベントの添字
+    var playing = false;
+    var lastWall = 0;
+    O.dmp4._config.clock = function () { return simT; };
 
     function dispatch(arr) { window.dispatchOverlayEvent({ type: 'LogLine', line: arr }); }
     function setSelf() {
@@ -253,62 +276,76 @@
     function resetOverlay() { dispatch(['260', 't', '1']); dispatch(['260', 't', '0']); }
     function speed() { return parseFloat(el('speed').value) || 1; }
 
-    // 早送りしても表示が破綻しないよう、ステータス行の秒数を速度で割る
-    function scaleLine(arr, sp) {
-      if (sp === 1) return arr;
-      var a = arr.slice();
-      if (a[0] === '26' && a[4]) {
-        var d = parseFloat(a[4]);
-        if (!isNaN(d) && d < 9000) a[4] = (d / sp).toFixed(2);
-      } else if (a[0] === '20' && a[8]) {
-        var c = parseFloat(a[8]);
-        if (!isNaN(c)) a[8] = (c / sp).toFixed(3);
+    // ms まで進める。★各イベントを「そのイベントの時刻」に時計を合わせてから流すので、
+    //   一気に飛ばしてもデバフの残り時間やカウントダウンが正しい値で入る。
+    function advanceTo(ms) {
+      while (cursor < script.length && script[cursor].t * 1000 <= ms) {
+        var e = script[cursor++];
+        if (!e.lines.length) continue;
+        simT = e.t * 1000;
+        e.lines.forEach(dispatch);
       }
-      return a;
+      simT = ms;
     }
-
-    function stop() {
-      timers.forEach(clearTimeout); timers = [];
-      if (raf) { cancelAnimationFrame(raf); raf = null; }
-      startedAt = null;
+    // 巻き戻しは「捨てて 0 から流し直す」。オーバーレイは状態を持つので途中から戻せない。
+    function rewindTo(ms) {
       resetOverlay();
-      renderHead(0);
-      lastCur = -2;
-      markEvents(-1);
-      el('events').scrollTop = 0;
-      el('status').textContent = '停止中';
-    }
-
-    // api.js の購読登録は非同期 (apiReady.then の中) なので、
-    // 準備完了を待ってから流さないと最初の 1 行 (自キャラ ID) が捨てられる。
-    function play() { O.api.ready().then(playNow); }
-    function playNow() {
-      stop();
-      var sp = speed();
-      // ログの秒数を 1/sp にして流すので、オーバーレイ内部の固定ディレイも同じだけ縮める
-      O.dmp4._config.timeScale = sp;
+      simT = 0; cursor = 0;
       setSelf();
       O.dmp4._setRole(scn.role);
-      startedAt = performance.now();
-      script.forEach(function (e) {
-        if (!e.lines.length) return;
-        timers.push(setTimeout(function () {
-          e.lines.forEach(function (l) { dispatch(scaleLine(l, sp)); });
-        }, (e.t * 1000) / sp));
-      });
-      // 早送り中はカンペの残り秒も 1/sp になる (実時間の残りを出しているため)
-      el('status').textContent = sp === 1 ? '再生中（等速）'
-        : '再生中（' + sp + '倍・カンペの残り秒は 1/' + sp + '）';
-      loop();
+      advanceTo(ms);
     }
+    function seek(sec) {
+      var ms = Math.max(0, Math.min(END + 6, sec)) * 1000;
+      if (ms < simT) rewindTo(ms); else advanceTo(ms);
+      paint();
+    }
+
+    function setPlaying(on) {
+      playing = !!on;
+      lastWall = performance.now();
+      el('play').textContent = playing ? '⏸ 一時停止' : '▶ 再生';
+      el('play').classList.toggle('go', !playing);
+      paint();
+    }
+    // api.js の購読登録は非同期 (apiReady.then の中) なので、
+    // 準備完了を待ってから流さないと最初の 1 行 (自キャラ ID) が捨てられる。
+    function play() {
+      O.api.ready().then(function () {
+        if (simT >= (END + 6) * 1000) seek(0);
+        setPlaying(true);
+      });
+    }
+    function toggle() { if (playing) setPlaying(false); else play(); }
+    // 先頭へ。simT が既に 0 でも seek(0) は何もしないので、明示的に流し直す。
+    function reset() {
+      setPlaying(false);
+      rewindTo(0);
+      lastCur = -2;
+      paint();
+      el('events').scrollTop = 0;
+    }
+    function stop() { reset(); }
 
     function loop() {
       raf = requestAnimationFrame(loop);
-      if (startedAt == null) return;
-      var t = ((performance.now() - startedAt) / 1000) * speed();
+      var wall = performance.now();
+      if (playing) {
+        simT += (wall - lastWall) * speed();
+        if (simT >= (END + 6) * 1000) { simT = (END + 6) * 1000; setPlaying(false); }
+        advanceTo(simT);
+        paint();
+      }
+      lastWall = wall;
+    }
+
+    function paint() {
+      var t = simT / 1000;
       renderHead(t);
       markEvents(t);
-      if (t > END + 6) { el('status').textContent = '再生完了'; startedAt = null; }
+      el('status').textContent = (playing ? '再生中' : '一時停止')
+        + ' — ' + t.toFixed(1) + 's / ' + END + 's'
+        + (speed() === 1 ? '' : '（' + speed() + '倍）');
     }
 
     // --- シナリオを作り直す ---
@@ -319,7 +356,7 @@
       script = NS.build(scn);
       renderSpec();
       renderTimeline();
-      stop();
+      reset();
     }
 
     function renderSpec() {
@@ -337,7 +374,7 @@
     var COL = { cast: '#5f7590', tell: '#c07bff', hit: '#ff9a6b', debuff: '#8cdcff', resolve: '#ffe783' };
     function renderTimeline() {
       var bar = el('tlBar'), lab = el('tlLabels'), list = el('events');
-      bar.innerHTML = ''; lab.innerHTML = ''; list.innerHTML = ''; evEls = [];
+      bar.innerHTML = ''; lab.innerHTML = ''; list.innerHTML = ''; evEls = []; lastCur = -2;
       for (var s = 0; s <= END; s += 10) {
         var tick = document.createElement('div');
         tick.className = 'tl-tick'; tick.style.left = (s / END * 100) + '%';
@@ -392,17 +429,62 @@
 
     // --- 操作 ---
     el('roll').onclick = function () { rebuild(NS.randomScenario()); play(); };
-    el('play').onclick = play;
+    el('play').onclick = toggle;
     el('stop').onclick = stop;
+    el('back').onclick = function () { seek(simT / 1000 - 5); };
+    el('fwd').onclick = function () { seek(simT / 1000 + 5); };
     el('assign').onchange = function () { scn.assign = this.value; rebuild(scn); };
     el('role').onchange = function () { scn.role = this.value; rebuild(scn); };
-    el('speed').onchange = function () { if (startedAt != null) play(); };
+    el('speed').onchange = paint;   // 速度は毎フレーム読むので付け替え不要
     el('rows').onchange = fitStage;
     el('toggleSpec').onclick = function () {
       var hidden = el('spec').classList.toggle('hidden');
       this.setAttribute('aria-pressed', String(hidden));
       this.textContent = hidden ? '答えを見る' : '答えを隠す';
     };
+    // --- タイムラインをつかんで任意の時点へ ---
+    // ドラッグ中は止めて、離したら元の再生状態に戻す。
+    var dragging = false, wasPlaying = false;
+    function barSec(ev) {
+      var r = el('tlBar').getBoundingClientRect();
+      return (ev.clientX - r.left) / Math.max(1, r.width) * END;
+    }
+    el('tlBar').addEventListener('pointerdown', function (ev) {
+      dragging = true; wasPlaying = playing;
+      setPlaying(false);
+      el('tlBar').classList.add('grabbing');
+      try { el('tlBar').setPointerCapture(ev.pointerId); } catch (e) { /* 無くても動く */ }
+      seek(barSec(ev));
+      ev.preventDefault();
+    });
+    el('tlBar').addEventListener('pointermove', function (ev) { if (dragging) seek(barSec(ev)); });
+    function endDrag() {
+      if (!dragging) return;
+      dragging = false;
+      el('tlBar').classList.remove('grabbing');
+      if (wasPlaying) setPlaying(true);
+    }
+    el('tlBar').addEventListener('pointerup', endDrag);
+    el('tlBar').addEventListener('pointercancel', endDrag);
+
+    // イベント一覧の行をクリックしたらその時点へ (少し前に置いて、その行が起きる直前にする)
+    el('events').addEventListener('click', function (ev) {
+      var li = ev.target.closest ? ev.target.closest('li') : null;
+      if (!li) return;
+      var i = evEls.indexOf(li);
+      if (i < 0) return;
+      setPlaying(false);
+      seek(script[i].t);
+    });
+
+    // スペースで再生/一時停止、←→ で 5 秒
+    document.addEventListener('keydown', function (ev) {
+      if (/^(INPUT|SELECT|TEXTAREA|BUTTON)$/.test(ev.target.tagName)) return;
+      if (ev.code === 'Space') { toggle(); ev.preventDefault(); }
+      else if (ev.code === 'ArrowLeft') { seek(simT / 1000 - 5); ev.preventDefault(); }
+      else if (ev.code === 'ArrowRight') { seek(simT / 1000 + 5); ev.preventDefault(); }
+    });
+
     var rt = null;
     window.addEventListener('resize', function () {
       clearTimeout(rt); rt = setTimeout(fitStage, 120);
@@ -410,7 +492,10 @@
 
     fitStage();
     rebuild(scn);
+    loop();          // 時計は常に回しておく (止まっているときは進まないだけ)
     O.api.ready().then(function () {
+      // ★ 最初の rebuild() は購読登録より前なので自キャラ ID が捨てられている。ここで撒き直す。
+      setSelf();
       // URL に #auto を付けると読み込みと同時に再生する (スクショ確認 / リンク共有用)
       if (location.hash.indexOf('auto') >= 0) play();
       else el('status').textContent = '「ランダムで引き直す」か「再生」を押してください';

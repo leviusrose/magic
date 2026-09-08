@@ -84,9 +84,9 @@
     showStatus: false,  // 左下に自キャラ検出状況
     debug: false,       // 上部に診断バナー + 未知 ID をコンソールへ
     demo: false,        // ゲームログ無しで表示確認
-    // 早送り再生用。ログ側の秒数を 1/n にして流すシミュレータが、
-    // ここで固定値のディレイも同じだけ縮めるために使う。実戦では 1 のまま。
-    timeScale: 1,
+    // 時計の差し替え。ミリ秒を返す関数を入れると now() がそれを使う。
+    // シミュレータが「任意の時点に飛ぶ / 早送りする」ために握る。実戦では null。
+    clock: null,
   };
 
   // ===== ID (cactbot dancing_mad 由来) =====
@@ -137,10 +137,10 @@
   // パネルの締め切り (= プログレスバーの 100%) は着弾側に置く。
   var MANA_TELL_MS = 300;
   var MANA_HIT_MS = 5100;
-  // 早/遅・視線1/視線2 の判別しきい値。早送り再生ではログの秒数が 1/n になるので
-  // しきい値も同じだけ縮めないと、遅の枠が全部「早」に落ちて ⑤⑥ が出なくなる。
-  function windowSplit() { return WINDOW_SPLIT / (CONFIG.timeScale || 1); }
-  function shriekSplit() { return SHRIEK_SPLIT / (CONFIG.timeScale || 1); }
+  // マジックチャージ → 扇/直線の着弾までの固定間隔 (cactbot: 1164.2 → 1208.9)。
+  // 「何が溜まっているか」はチャージの時点で分かるので、詠唱を待たずにパネルを出す。
+  // 締め切りはここでは暫定で、マジックアウトの詠唱が来たら本当の着弾時刻に差し替える。
+  var MANA_CHARGE_TO_HIT_MS = 44700;
   var WINDOW_SPLIT = 55;     // 早(51/36) と 遅(76/61) の境目(秒)
   var SHRIEK_SPLIT = 65;     // 視線1(60) と 視線2(69) の境目(秒)
   var RESET_AFTER_SEC = 120;
@@ -192,6 +192,7 @@
       dof: null,       // 'death' | 'field'
       liveTruth: { fire: null, ice: null, thunder: null },
       charged: { ice: null, thunder: null },
+      chargeAt: null,     // マジックチャージの時刻 (同じ瞬間の予兆を拾う窓に使う)
       alerted: {},
     };
   }
@@ -222,7 +223,10 @@
   }
 
   // ===== 共通 =====
-  function now() { return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now(); }
+  function now() {
+    if (typeof CONFIG.clock === 'function') return CONFIG.clock();
+    return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+  }
   function normId(s) { return String(s == null ? '' : s).toUpperCase().replace(/^0+(?=.)/, ''); }
   function mod360(a) { return ((a % 360) + 360) % 360; }
   function L(k) { return CONFIG.labels[k] || k; }
@@ -330,14 +334,13 @@
 
     if (AB.FLOOD.indexOf(id) >= 0) { updateLaser(id, castMs); return; }
     if (id === AB.MANA_RELEASE) {
-      var sc = CONFIG.timeScale || 1;
       var t0 = now();
-      var hitAt = t0 + castMs + MANA_HIT_MS / sc;
-      state.steps.mana = {
-        at: hitAt, total: hitAt - t0,
-        readyAt: t0 + castMs + MANA_TELL_MS / sc,   // ここで真偽が確定する
-        ice: null, thunder: null,
-      };
+      // マジックチャージで作った枠があればそれを伸ばす (バーがチャージから通しで進む)
+      var m = state.steps.mana ||
+        (state.steps.mana = { from: t0, ice: null, thunder: null });
+      m.at = t0 + castMs + MANA_HIT_MS;
+      m.readyAt = t0 + castMs + MANA_TELL_MS;   // ここで真偽が確定する
+      m.total = m.at - m.from;
       return;
     }
     if (CONFIG.debug && (id === AB.INFERNO || id === AB.TSUNAMI || id === AB.MANA_CHARGE)) {
@@ -386,7 +389,7 @@
     var s = state.steps;
 
     if (id === ST.SHRIEK) {
-      var gk = dur < shriekSplit() ? 'gaze1' : 'gaze2';
+      var gk = dur < SHRIEK_SPLIT ? 'gaze1' : 'gaze2';
       var g = s[gk] || (s[gk] = { at: at, from: now(), truth: state.tell.exdeath, players: [], mine: false });
       g.at = at; g.total = at - g.from;   // バーは「最初に見えた時から解決まで」で伸ばす
       if (g.truth == null) g.truth = state.tell.exdeath;
@@ -403,7 +406,7 @@
         state.gcDebuffSets++;
         state.lastGcDebuffAt = now();
       }
-      var wk = dur >= windowSplit() ? 'long' : 'short';
+      var wk = dur >= WINDOW_SPLIT ? 'long' : 'short';
       var w = s[wk] || (s[wk] = { at: at, from: now(), kind: null, truth: null, bomb: null, mine: false });
       w.at = at; w.total = at - w.from;   // 後から別のデバフが来てもバーが飛ばないようにする
       if (mine) {
@@ -423,13 +426,21 @@
       touch(); return;
     }
     if (id === ST.CHARGE_ICE || id === ST.CHARGE_THUNDER) {
-      // 頭マーカーが同時に飛んでくるので少し待ってからスナップする
+      // 溜まった予兆は「溜真/溜偽」として仮表示できるので、ここで枠を作っておく。
+      // 詠唱まで待つと ⑦ だけ 33 秒あとから現れて発火が遅く見える。
+      if (!s.mana) {
+        var mt = now();
+        s.mana = { from: mt, at: mt + MANA_CHARGE_TO_HIT_MS, total: MANA_CHARGE_TO_HIT_MS,
+          readyAt: null, ice: null, thunder: null };
+      }
+      // 頭マーカーは同じ瞬間に前後どちらの順でも飛んでくる。以前は 250ms の
+      // タイマーで待っていたが、それだと巻き戻し再生 (時計を差し替えて一気に流す)
+      // で再現できないので、「チャージ直後 1 秒の頭マーカーもスナップに入れる」
+      // 形にして順序に依存しないようにした。
       var key = (id === ST.CHARGE_ICE) ? 'ice' : 'thunder';
-      setTimeout(function () {
-        if (!state.active) return;
-        state.charged[key] = state.liveTruth[key];
-        if (CONFIG.debug) console.log('[dmp4] チャージ', key, state.charged[key]);
-      }, 250 / (CONFIG.timeScale || 1));
+      state.chargeAt = now();
+      state.charged[key] = state.liveTruth[key];
+      if (CONFIG.debug) console.log('[dmp4] チャージ', key, state.charged[key]);
       touch(); return;
     }
     if (mine) {
@@ -452,6 +463,8 @@
     var h = HEAD[icon];
     if (!h) return;
     state.liveTruth[h[0]] = h[1];
+    // チャージと同じ瞬間に来た予兆はスナップにも反映する (行の前後に依存しない)
+    if (state.chargeAt != null && now() - state.chargeAt <= 1000) state.charged[h[0]] = h[1];
     if (CONFIG.debug) console.log('[dmp4] なぞなぞ', h[0], h[1] ? '本当' : '嘘');
   }
 
