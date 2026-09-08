@@ -595,7 +595,8 @@
   function spellText() {
     if (!state.steps.spell) return null;
     var r = spellNext();
-    if (r.truth == null) return '?';
+    // 「?」だけだとパネルが初期化されたように見えるので、どちらを待っているのかを出す
+    if (r.truth == null) return r.label + ' ?';
     // 予兆が本当 = 本物なので踏まない / 嘘 = 見せかけなので踏む
     return r.label + ' ' + (r.truth ? L('avoidTell') : L('stepTell'));
   }
@@ -679,9 +680,12 @@
       case 'spell': {
         if (!s.spell) return { kind: 'truth', rows: [], known: false };
         var rows = spellRows();
-        // 枠の黄色 (確定) は「次に処理する行が分かっているか」で点ける。
-        // 両方揃うまで待つと、扇が分かるのは 95.5 秒 = 処理の直前になってしまう。
-        return { kind: 'truth', rows: rows, known: spellNext().truth != null };
+        // 枠の黄色 (確定) は 1 行でも確定したら点けたままにする。
+        // ★「次に処理する行が分かっているか」にすると、直線 (77.5) が済んでから
+        //   ブリザガの詠唱 (91.5) が来るまでの 14 秒だけ消えて
+        //   「光って消えてまた光る」になる。他のパネルは点いたままなので揃える。
+        // 両方揃うまで待つのも駄目 (扇が分かるのは処理の直前になってしまう)。
+        return { kind: 'truth', rows: rows, known: !!(s.spell.bolt || s.spell.cone) };
       }
     }
     return null;

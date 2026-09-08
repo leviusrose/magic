@@ -208,7 +208,7 @@ emit(stat('5CC', 'ブリザガチャージ', 60, '4000AAAA'));
 emit(stat('5CD', 'サンダガチャージ', 60, '4000AAAA'));
 check('チャージでパネルが出る', st().steps.spell != null);
 check('詠唱前は両方 ?', scn('spell').rows.every((r) => r.truth == null), JSON.stringify(scn('spell').rows));
-check('一言も ?', val('spell') === '?', val('spell'));
+check('一言はどちらを待っているか出す', val('spell') === '直線 ?', val('spell'));
 emit(head('02A5'));                       // サンダガ 嘘
 emit(cast('4000AAAA', 'ケフカ', 'C5DE', 'もりもりサンダガ', '4.000'));
 check('直線 = 嘘 → 踏む', val('spell') === '直線 踏む', val('spell'));
@@ -216,7 +216,9 @@ check('直線の行だけ確定', scn('spell').rows[0].truth === false && scn('s
 check('次に来るのが分かったので確定枠', scn('spell').known === true);
 advance(4100);                            // 直線が着弾
 check('直線の行は done になる', scn('spell').rows[0].done === true);
-check('扇がまだなので未確定に戻る', scn('spell').known === false);
+// ★ここで枠が消えると「光って消えてまた光る」になるので、点けたままにする
+check('扇の詠唱待ちでも枠は消えない', scn('spell').known === true);
+check('一言は扇待ちに変わる', val('spell') === '扇 ?', val('spell'));
 emit(head('02A4'));                       // ブリザガ 本当
 emit(cast('4000AAAA', 'ケフカ', 'BA95', 'ひろげるブリザガ', '4.000'));
 check('一言は次に来る扇に切り替わる', val('spell') === '扇 踏まない', val('spell'));

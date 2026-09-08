@@ -168,13 +168,13 @@
     + '詠唱が来ていない行は破線の「?」、過ぎた行は薄くして残す。'
     + 'マジックアウトで溜めた 2 発が同時に来るぶんは、この 2 発で分かるので出さない。');
   cell(s7, { kind: 'truth', rows: [row('直線', null), row('扇', null)], known: false },
-    { title: '⑦ 直線/扇', value: '?' }, 'マジックチャージ直後。どちらも詠唱前', 0.10);
+    { title: '⑦ 直線/扇', value: '直線 ?' }, 'マジックチャージ直後。どちらも詠唱前', 0.10);
   cell(s7, { kind: 'truth', rows: [row('直線', false), row('扇', null)], known: true },
     { title: '⑦ 直線/扇', value: '直線 踏む' }, '直線の予兆が嘘 → 直線に入る。扇はまだ', 0.32);
   cell(s7, { kind: 'truth', rows: [row('直線', true), row('扇', null)], known: true },
     { title: '⑦ 直線/扇', value: '直線 踏まない' }, '直線の予兆が本当 → 避ける', 0.32);
-  cell(s7, { kind: 'truth', rows: [row('直線', true, true), row('扇', null)], known: false },
-    { title: '⑦ 直線/扇', value: '?' }, '直線は終わった（薄く残す）。扇の詠唱待ち', 0.55);
+  cell(s7, { kind: 'truth', rows: [row('直線', true, true), row('扇', null)], known: true },
+    { title: '⑦ 直線/扇', value: '扇 ?' }, '直線は終わった（薄く残す）。扇の詠唱待ちでも枠は消さない', 0.55);
   cell(s7, { kind: 'truth', rows: [row('直線', true, true), row('扇', false)], known: true },
     { title: '⑦ 直線/扇', value: '扇 踏む' }, '扇の予兆が嘘 → 扇に入る', 0.88);
   cell(s7, { kind: 'truth', rows: [row('直線', false, true), row('扇', true)], known: true },
