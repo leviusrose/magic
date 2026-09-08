@@ -207,22 +207,18 @@
       at(T.floodCast, function () { dispatch(cast(NEO, 'ネオエクスデス', s.floodId, '無の氾濫', 5.0)); });
       at(T.antilight, function () { dispatch(ability(NEO, 'ネオエクスデス', 'C394', 'ホワイトアンチライト')); });
 
+      // ⑦ の答えはマジックチャージと同時に飛んでくる予兆で決まる
       at(T.manaCharge, function () {
         dispatch(ability(KEFKA, 'ケフカ', 'BAA4', 'マジックチャージ'));
+        dispatch(head(s.lineTell)); dispatch(head(s.coneTell));
         dispatch(stat('5CC', 'ブリザガチャージ', 60, KEFKA, 'ケフカ'));
         dispatch(stat('5CD', 'サンダガチャージ', 60, KEFKA, 'ケフカ'));
       });
-      // ⑦ マジックチャージ後の単発 2 発。予兆は詠唱と一緒に出る
-      at(T.boltCast, function () {
-        dispatch(head(s.lineTell));
-        dispatch(cast(KEFKA, 'ケフカ', 'C5DE', 'もりもりサンダガ', 4.0));
-      });
+      // 単発 2 発の詠唱は締め切り (残り秒) を本当の着弾時刻に差し替えるだけ
+      at(T.boltCast, function () { dispatch(cast(KEFKA, 'ケフカ', 'C5DE', 'もりもりサンダガ', 4.0)); });
       at(T.boltHit, function () { dispatch(ability(KEFKA, 'ケフカ', 'BA9F', 'もりもりサンダガ')); });
       at(T.upsurge, function () { dispatch(ability(KEFKA, 'ケフカ', 'C24A', 'アルテマアップサージ')); });
-      at(T.coneCast, function () {
-        dispatch(head(s.coneTell));
-        dispatch(cast(KEFKA, 'ケフカ', 'BA95', 'ひろげるブリザガ', 4.0));
-      });
+      at(T.coneCast, function () { dispatch(cast(KEFKA, 'ケフカ', 'BA95', 'ひろげるブリザガ', 4.0)); });
       at(T.coneHit, function () { dispatch(ability(KEFKA, 'ケフカ', 'BA98', 'ひろげるブリザガ')); });
       at(T.coneHit + 20, function () { out.textContent = s.label + '：完了'; });
     }

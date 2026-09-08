@@ -425,8 +425,15 @@
       // (詠唱まで待つと ⑦ だけ数秒あとから現れて発火が遅く見える)。
       if (!s.spell) {
         var t0 = now();
+        // ★真偽は「その時点の最新のなぞなぞ予兆」そのものなので、詠唱を待たずに
+        //   チャージの時点で直線も扇も判定できる (扇の詠唱は 22 秒あとなので、
+        //   待つと扇だけ長いあいだ「?」のままになる)。
+        //   締め切りは暫定値で置き、詠唱が来たら本当の着弾時刻に差し替える。
+        //   チャージ後に新しい予兆が来た場合は onHeadMarker が焼き直す。
         s.spell = { from: t0, at: t0 + SPELL_BOLT_MS, barAt: t0 + SPELL_SPAN_MS,
-          total: SPELL_SPAN_MS, bolt: null, cone: null };
+          total: SPELL_SPAN_MS,
+          bolt: { at: t0 + SPELL_BOLT_MS, truth: state.liveTruth.thunder, elem: 'thunder' },
+          cone: { at: t0 + SPELL_SPAN_MS, truth: state.liveTruth.ice, elem: 'ice' } };
       }
       touch(); return;
     }
@@ -450,8 +457,10 @@
     var h = HEAD[icon];
     if (!h) return;
     state.liveTruth[h[0]] = h[1];
-    // 予兆は詠唱の前後どちらの順でも飛んでくる。まだ来ていない技のぶんなら焼き直す
-    // (来てしまった技のぶんは at を過ぎているので触らない = 順序に依存しない)。
+    // まだ着弾していない技のぶんの予兆なら焼き直す。これで
+    //   ・詠唱と予兆がどちらの順で来ても同じ結果になる
+    //   ・チャージ時にシードした真偽が、あとから来た新しい予兆で更新される
+    // (着弾済みの技は at を過ぎているので触らない)。
     var sp = state.steps.spell;
     if (sp) {
       var row = (h[0] === 'thunder') ? sp.bolt : (h[0] === 'ice') ? sp.cone : null;
@@ -680,12 +689,12 @@
       case 'spell': {
         if (!s.spell) return { kind: 'truth', rows: [], known: false };
         var rows = spellRows();
-        // 枠の黄色 (確定) は 1 行でも確定したら点けたままにする。
+        // 枠の黄色 (確定) は 1 行でも真偽が分かったら点けたままにする。
         // ★「次に処理する行が分かっているか」にすると、直線 (77.5) が済んでから
         //   ブリザガの詠唱 (91.5) が来るまでの 14 秒だけ消えて
         //   「光って消えてまた光る」になる。他のパネルは点いたままなので揃える。
-        // 両方揃うまで待つのも駄目 (扇が分かるのは処理の直前になってしまう)。
-        return { kind: 'truth', rows: rows, known: !!(s.spell.bolt || s.spell.cone) };
+        return { kind: 'truth', rows: rows,
+          known: rows.some(function (r) { return r.truth != null; }) };
       }
     }
     return null;

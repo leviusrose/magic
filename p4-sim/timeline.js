@@ -108,8 +108,10 @@
       flood: pick(FLOOD_IDS).id,
       // なぞなぞマジックの予兆 (単発 2 発とは別。古い予兆が漏れないことの確認用)
       mysteryIce: coin(), mysteryThunder: coin(),
-      // ★単発 2 発の予兆。⑦ の答えはこれだけで決まる
+      // ★マジックチャージと一緒に出る予兆。⑦ (単発 2 発) の答えはこれで決まる
       lineTruth: coin(), coneTruth: coin(),
+      // マジックアウトで出る予兆 (カンペ対象外。⑦ を邪魔しないことの確認用)
+      outIce: coin(), outThunder: coin(),
     };
   };
 
@@ -208,8 +210,13 @@
     add(T.antilight, 'hit', 'ネオエクスデス', 'アンチライト / デスエッジ', [abil(N, 'ネオエクスデス', 'C394', 'ホワイトアンチライト')]);
 
     // --- マジックチャージ ---
-    add(T.manaCharge, 'hit', 'ケフカ', 'マジックチャージ (予兆を記憶)', [
+    // ★マジックチャージには予兆が同時に飛んでくる (cactbot の Mana Charge Collect が
+    //   delaySeconds 0.1 で頭マーカーを待っているのが根拠)。この予兆が
+    //   このあとの単発サンダガ/ブリザガの答えになるので、⑦ はここで両方確定する。
+    add(T.manaCharge, 'debuff', 'ケフカ', 'マジックチャージ → ⑦ 確定（直線='
+      + (scn.lineTruth ? '本当' : '嘘') + ' / 扇=' + (scn.coneTruth ? '本当' : '嘘') + '）', [
       abil(K, 'ケフカ', 'BAA4', 'マジックチャージ'),
+      head(HEAD_THU[scn.lineTruth]), head(HEAD_ICE[scn.coneTruth]),
       stat('5CC', 'ブリザガチャージ', 60, K, 'ケフカ'),
       stat('5CD', 'サンダガチャージ', 60, K, 'ケフカ'),
     ]);
@@ -219,12 +226,10 @@
     //   雷水、デスシュリーク = 視線) の時刻をそのまま使う。DUR はそこから逆算してある。
     add(T.deathSurge, 'hit', 'ネオエクスデス', 'デスサージ', []);
     add(T.shortRes, 'resolve', '—', '② 早 雷水/加速度 ← デスボルト/デスウェイブ', [], true);
-    // ★単発サンダガ (直線)。予兆は詠唱と一緒に出る
-    add(T.boltRes - CAST.bolt, 'cast', 'ケフカ', 'もりもりサンダガ 詠唱（直線の予兆 = '
-      + (scn.lineTruth ? '本当' : '嘘') + '）', [
-      head(HEAD_THU[scn.lineTruth]),
-      cast(K, 'ケフカ', 'C5DE', 'もりもりサンダガ', CAST.bolt),
-    ]);
+    // ★単発サンダガ (直線)。答えはマジックチャージの予兆で既に出ている。
+    //   詠唱は締め切り (残り秒) を本当の着弾時刻に差し替えるだけ。
+    add(T.boltRes - CAST.bolt, 'cast', 'ケフカ', 'もりもりサンダガ 詠唱（⑦ 直線の締め切り確定）',
+      [cast(K, 'ケフカ', 'C5DE', 'もりもりサンダガ', CAST.bolt)]);
     add(T.boltRes, 'resolve', 'ケフカ', '⑦ 直線 ← もりもりサンダガ 着弾',
       [abil(K, 'ケフカ', 'BA9F', 'もりもりサンダガ')], true);
     add(T.gaze1Res, 'resolve', '—', '③ 視線1 ← デスシュリーク', [], true);
@@ -233,11 +238,8 @@
     add(T.strayFlames, 'hit', 'カオス', '混沌の炎 着弾', [abil(C, 'カオス', 'BB22', '混沌の炎')]);
     add(T.longRes, 'resolve', '—', '⑤ 遅 雷水/加速度 ← デスボルト/デスウェイブ', [], true);
     // ★単発ブリザガ (扇)
-    add(T.coneRes - CAST.cone, 'cast', 'ケフカ', 'ひろげるブリザガ 詠唱（扇の予兆 = '
-      + (scn.coneTruth ? '本当' : '嘘') + '）', [
-      head(HEAD_ICE[scn.coneTruth]),
-      cast(K, 'ケフカ', 'BA95', 'ひろげるブリザガ', CAST.cone),
-    ]);
+    add(T.coneRes - CAST.cone, 'cast', 'ケフカ', 'ひろげるブリザガ 詠唱（⑦ 扇の締め切り確定）',
+      [cast(K, 'ケフカ', 'BA95', 'ひろげるブリザガ', CAST.cone)]);
     add(T.coneRes, 'resolve', 'ケフカ', '⑦ 扇 ← ひろげるブリザガ 着弾',
       [abil(K, 'ケフカ', 'BA98', 'ひろげるブリザガ')], true);
     add(T.gaze2Res, 'resolve', '—', '⑥ 視線2 ← デスシュリーク', [], true);
@@ -248,7 +250,8 @@
       cast(K, 'ケフカ', 'BAA5', 'マジックアウト', CAST.manaRelease),
     ]);
     add(waterExp, 'resolve', 'カオス', '⑧ つなみ (位置を取る) ← 混沌の水 詠唱開始', [], true);
-    add(T.manaReleaseHit, 'hit', 'ケフカ', 'マジックアウト 着弾 → 扇/直線の予兆が出る（カンペ対象外）', []);
+    add(T.manaReleaseHit, 'hit', 'ケフカ', 'マジックアウト 着弾 → 新しい予兆が出る（カンペ対象外）',
+      [head(HEAD_THU[scn.outThunder]), head(HEAD_ICE[scn.outIce])]);
     add(T.straySpray, 'hit', 'カオス', '混沌の水 着弾', [abil(C, 'カオス', 'BB24', '混沌の水')]);
     // マジックアウトで溜めた 2 発が同時に来る。真偽はチャージ時と出た瞬間の予兆の
     // XNOR だが、ユーザ方針でカンペには出さない (単発 2 発で分かるものだけ出す)。
@@ -275,10 +278,11 @@
       ['GC3 の傷', scn.wound === 'white' ? '生者の傷（紫）' : '死者の傷（青）'],
       ['GC3 のもう1つ', scn.dof === 'death' ? '死の超越（色そのまま）' : 'アラガンフィールド（逆の色）'],
       ['無の氾濫', fl.label],
-      ['単発サンダガ（直線）', tf(scn.lineTruth) + ' → ' + (scn.lineTruth ? '踏まない' : '踏む')],
-      ['単発ブリザガ（扇）', tf(scn.coneTruth) + ' → ' + (scn.coneTruth ? '踏まない' : '踏む')],
-      ['なぞなぞの予兆', '扇=' + tf(scn.mysteryIce) + ' / 直線=' + tf(scn.mysteryThunder)
-        + '（⑦ には使わない）'],
+      ['マジックチャージの予兆', '直線=' + tf(scn.lineTruth) + ' / 扇=' + tf(scn.coneTruth)],
+      ['⑦ 直線（サンダガ 77.5s）', scn.lineTruth ? '踏まない' : '踏む'],
+      ['⑦ 扇（ブリザガ 95.5s）', scn.coneTruth ? '踏まない' : '踏む'],
+      ['なぞなぞの古い予兆', '扇=' + tf(scn.mysteryIce) + ' / 直線=' + tf(scn.mysteryThunder)
+        + '（マジックチャージの予兆で上書きされる）'],
     ];
   };
 })();
