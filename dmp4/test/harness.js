@@ -7,7 +7,7 @@
 //   ・呪詛の叫声の残り時間 → 視線1 / 視線2
 //   ・混沌の炎 / 混沌の水 → タケノコ / 中央
 //   ・GC3 の 傷 + 死の超越/アラガンフィールド → 無の氾濫のレーザー色と左右 (全16通り)
-//   ・マジックチャージ → マジックアウトの 扇/直線 判定
+//   ・マジックチャージ後の単発 直線(サンダガ)/扇(ブリザガ) の 踏む/踏まない
 //   ・戦闘終了リセット
 // を検証する。ID は cactbot の絶妖星乱舞データ由来。
 'use strict';
@@ -203,35 +203,44 @@ O.dmp4._config.showLaserSide = true;
 check('showLaserSide=true なら左右も付く', val('laser') === '紫 左', val('laser'));
 O.dmp4._config.showLaserSide = false;
 
-console.log('11) マジックチャージ → マジックアウト (チャージ時と一致なら予兆は本当)');
-emit(head('02A4'));                       // ブリザガ 本当
-emit(head('02A5'));                       // サンダガ 嘘
+console.log('11) マジックチャージ後の単発 直線/扇 (予兆が本当=踏まない / 嘘=踏む)');
 emit(stat('5CC', 'ブリザガチャージ', 60, '4000AAAA'));
 emit(stat('5CD', 'サンダガチャージ', 60, '4000AAAA'));
-advance(2000);                            // チャージ直後 1 秒の窓を抜ける (実戦では 33 秒あく)
-check('チャージ 氷 = 本当', st().charged.ice === true, st().charged.ice);
-check('チャージ 雷 = 嘘', st().charged.thunder === false, st().charged.thunder);
-emit(head('02A4'));                       // 出る側も 氷 本当 → 一致 = 本当
-emit(head('02A6'));                       // 雷は 本当 → チャージ(嘘)と不一致 = 嘘
-const mo = O.dmp4._computeManaOut();
-check('氷 = 本当 (予兆を避ける)', mo.ice === true, mo.ice);
-check('雷 = 嘘 (直線に入る)', mo.thunder === false, mo.thunder);
-emit(cast('4000AAAA', 'ケフカ', 'BAA5', 'マジックアウト', '6.700'));
-advance(7100);
-check('マジックアウト = 直線だけ踏む', val('mana') === '直線だけ踏む', val('mana'));
+check('チャージでパネルが出る', st().steps.spell != null);
+check('詠唱前は両方 ?', scn('spell').rows.every((r) => r.truth == null), JSON.stringify(scn('spell').rows));
+check('一言も ?', val('spell') === '?', val('spell'));
+emit(head('02A5'));                       // サンダガ 嘘
+emit(cast('4000AAAA', 'ケフカ', 'C5DE', 'もりもりサンダガ', '4.000'));
+check('直線 = 嘘 → 踏む', val('spell') === '直線 踏む', val('spell'));
+check('直線の行だけ確定', scn('spell').rows[0].truth === false && scn('spell').rows[1].truth == null);
+check('次に来るのが分かったので確定枠', scn('spell').known === true);
+advance(4100);                            // 直線が着弾
+check('直線の行は done になる', scn('spell').rows[0].done === true);
+check('扇がまだなので未確定に戻る', scn('spell').known === false);
+emit(head('02A4'));                       // ブリザガ 本当
+emit(cast('4000AAAA', 'ケフカ', 'BA95', 'ひろげるブリザガ', '4.000'));
+check('一言は次に来る扇に切り替わる', val('spell') === '扇 踏まない', val('spell'));
+check('扇 = 本当 → 踏まない', scn('spell').rows[1].truth === true);
 
-console.log('12) 4 通りのマジックアウト文言');
-function manaOut(ci, ct, li, lt) {
-  st().charged.ice = ci; st().charged.thunder = ct;
-  st().liveTruth.ice = li; st().liveTruth.thunder = lt;
-  st().steps.mana = { at: NOW - 1, ice: null, thunder: null };
-  tick();
-  return val('mana');
+console.log('12) 4 通りの組み合わせ');
+function spellOut(lineTruth, coneTruth) {
+  emit('260|t|0'); tick();
+  emit(cast('4000AAAA', 'ケフカ', 'C2DC', 'おちょくりソウル', '5.000'));
+  emit(stat('5CD', 'サンダガチャージ', 60, '4000AAAA'));
+  emit(head(lineTruth ? '02A6' : '02A5'));
+  emit(cast('4000AAAA', 'ケフカ', 'C5DE', 'もりもりサンダガ', '4.000'));
+  emit(head(coneTruth ? '02A4' : '02A3'));
+  emit(cast('4000AAAA', 'ケフカ', 'BA95', 'ひろげるブリザガ', '22.000'));
+  return scn('spell').rows.map((r) => r.label + (r.truth ? '踏まない' : '踏む')).join(' / ');
 }
-check('氷本当+雷本当 → 両方踏まない', manaOut(true, true, true, true) === '両方踏まない');
-check('氷嘘+雷本当 → 扇だけ踏む', manaOut(true, true, false, true) === '扇だけ踏む');
-check('氷本当+雷嘘 → 直線だけ踏む', manaOut(true, true, true, false) === '直線だけ踏む');
-check('氷嘘+雷嘘 → 両方踏む', manaOut(true, true, false, false) === '両方踏む');
+check('直線本当+扇本当 → 両方踏まない',
+  spellOut(true, true) === '直線踏まない / 扇踏まない', spellOut(true, true));
+check('直線嘘+扇本当 → 直線だけ踏む',
+  spellOut(false, true) === '直線踏む / 扇踏まない', spellOut(false, true));
+check('直線本当+扇嘘 → 扇だけ踏む',
+  spellOut(true, false) === '直線踏まない / 扇踏む', spellOut(true, false));
+check('直線嘘+扇嘘 → 両方踏む',
+  spellOut(false, false) === '直線踏む / 扇踏む', spellOut(false, false));
 
 console.log('13) 戦闘終了(260 flag=0)で即リセット (ワイプ対策)');
 emit('260|t|0'); tick();
@@ -300,7 +309,7 @@ emit('260|t|0'); tick();
 check('P4 前は laser 未確定', scn('laser').known === false);
 check('P4 前は short 未確定', scn('short').known === false);
 check('P4 前は gaze1 未確定', scn('gaze1').known === false);
-check('P4 前は mana 未確定', scn('mana').known === false);
+check('P4 前は spell 未確定', scn('spell').known === false);
 
 console.log('19) リセット: ワイプ / 撃破 / ゾーン移動 / 次のプルで持ち越さない');
 function fillP4() {
@@ -316,10 +325,10 @@ function fillP4() {
   emit(stat('15A5', '生者の傷', 15, SELF));
   emit(stat('1558', '死の超越', 15, SELF));
   emit(cast(BOSS, 'ネオエクスデス', 'C393', '無の氾濫', '5.000'));
-  emit(cast('4000AAAA', 'ケフカ', 'BAA5', 'マジックアウト', '6.700'));
+  emit(stat('5CC', 'ブリザガチャージ', 60, '4000AAAA'));
   tick();
 }
-const KEYS = ['laser', 'short', 'gaze1', 'fire', 'long', 'gaze2', 'mana', 'water'];
+const KEYS = ['laser', 'short', 'gaze1', 'fire', 'long', 'gaze2', 'spell', 'water'];
 function boardFilled() { return KEYS.filter((k) => st().steps[k] != null).length; }
 
 fillP4();
@@ -328,7 +337,7 @@ emit('260|t|0'); tick();                       // ワイプ / 撃破 = 戦闘終
 check('ワイプで全部空', boardFilled() === 0, boardFilled());
 check('ワイプで真偽もクリア', st().tell.exdeath === null && st().tell.chaos === null);
 check('ワイプで傷/超越もクリア', st().wound === null && st().dof === null);
-check('ワイプでチャージもクリア', st().charged.ice === null && st().charged.thunder === null);
+check('ワイプで予兆もクリア', st().liveTruth.ice === null && st().liveTruth.thunder === null);
 check('ワイプで GC カウント 0', st().gcCount === 0, st().gcCount);
 check('ワイプで音の発火済みフラグもクリア', Object.keys(st().alerted).length === 0);
 check('ワイプで done もクリア', Object.keys(st().done).length === 0);
@@ -507,42 +516,45 @@ check('早と遅の解決はどちらも同じ時刻に揃う',
   st().steps.long.at - st().steps.short.at);
 O.dmp4._config.clock = null;
 
-console.log('27b) チャージのスナップは頭マーカーの前後どちらでも取れる (タイマー無し)');
-[['予兆が先', ['head', 'chg']], ['チャージが先', ['chg', 'head']]].forEach(function (c) {
+console.log('27b) 予兆は詠唱の前後どちらの順でも取れる (行の順に依存しない)');
+[['予兆が先', ['head', 'cast']], ['詠唱が先', ['cast', 'head']]].forEach(function (c) {
   emit('260|t|0'); tick();
   emit(cast('4000AAAA', 'ケフカ', 'C2DC', 'おちょくりソウル', '5.000'));
+  emit(stat('5CD', 'サンダガチャージ', 60, '4000AAAA'));
   c[1].forEach(function (step) {
-    if (step === 'head') { emit(head('02A4')); emit(head('02A5')); }
-    else { emit(stat('5CC', 'ブリザガチャージ', 60, '4000AAAA')); emit(stat('5CD', 'サンダガチャージ', 60, '4000AAAA')); }
+    if (step === 'head') emit(head('02A5'));                                     // 雷 嘘
+    else emit(cast('4000AAAA', 'ケフカ', 'C5DE', 'もりもりサンダガ', '4.000'));
   });
-  check(c[0] + ' → 溜 氷=真 雷=偽',
-    st().charged.ice === true && st().charged.thunder === false,
-    st().charged.ice + '/' + st().charged.thunder);
+  check(c[0] + ' → 直線 踏む', val('spell') === '直線 踏む', val('spell'));
 });
 
-console.log('28) ⑦ はマジックチャージの時点でパネルが出る (溜まった予兆の仮表示)');
+console.log('28) ⑦ はマジックチャージで出る。バーは扇まで通しで伸びる');
 emit('260|t|0'); tick();
 emit(cast('4000AAAA', 'ケフカ', 'C2DC', 'おちょくりソウル', '5.000'));
-check('チャージ前は枠が無い', st().steps.mana == null, st().steps.mana);
-emit(head('02A4'));                       // ブリザガ 本当
-emit(head('02A5'));                       // サンダガ 嘘
+check('チャージ前は枠が無い', st().steps.spell == null, st().steps.spell);
 emit(stat('5CC', 'ブリザガチャージ', 60, '4000AAAA'));
 emit(stat('5CD', 'サンダガチャージ', 60, '4000AAAA'));
-check('チャージで枠ができる', st().steps.mana != null);
-check('答えはまだ ?', val('mana') === '?', val('mana'));
-check('未確定のまま', scn('mana').known === false);
-check('溜まった予兆は仮表示できる',
-  scn('mana').charged != null && scn('mana').charged.ice === true &&
-  scn('mana').charged.thunder === false, JSON.stringify(scn('mana').charged));
-const mFrom = st().steps.mana.from;
-advance(33000);
-emit(cast('4000AAAA', 'ケフカ', 'BAA5', 'マジックアウト', '6.700'));
-check('詠唱が来ても from は動かない', st().steps.mana.from === mFrom);
-check('total はチャージ → 着弾の 44.8s',
-  Math.round(st().steps.mana.total / 1000) === 45, st().steps.mana.total);
-advance(7100);
-check('予兆で答えが出る', val('mana') !== '?', val('mana'));
-check('着弾までパネルは残る', st().steps.mana.at - NOW > 4000, st().steps.mana.at - NOW);
+const sFrom = st().steps.spell.from;
+check('暫定の残り秒は次に来る直線ぶん 8.3s',
+  Math.round((st().steps.spell.at - sFrom) / 1000) === 8, st().steps.spell.at - sFrom);
+check('暫定のバーは遅い扇ぶん 26.3s',
+  Math.round((st().steps.spell.barAt - sFrom) / 1000) === 26, st().steps.spell.barAt - sFrom);
+advance(4000);
+emit(head('02A5'));
+emit(cast('4000AAAA', 'ケフカ', 'C5DE', 'もりもりサンダガ', '4.300'));
+check('残り秒は先に来る直線 (8.3s 後)',
+  Math.round((st().steps.spell.at - sFrom) / 1000) === 8, st().steps.spell.at - sFrom);
+check('詠唱が来ても from は動かない', st().steps.spell.from === sFrom);
+advance(4400);                            // 直線が着弾 → 残り秒の対象が扇に移る
+emit(head('02A4'));
+emit(cast('4000AAAA', 'ケフカ', 'BA95', 'ひろげるブリザガ', '4.000'));
+check('残り秒は扇に切り替わる (12.4s 後)',
+  Math.round((st().steps.spell.at - sFrom) / 1000) === 12, st().steps.spell.at - sFrom);
+check('バーは巻き戻らない (total は縮まない)',
+  st().steps.spell.total >= 12400, st().steps.spell.total);
+check('両方確定したら一言は次に来る扇', val('spell') === '扇 踏まない', val('spell'));
+advance(4100);
+check('両方 done', scn('spell').rows.every((r) => r.done === true));
 
 console.log(`\n結果: ${pass} pass / ${fail} fail`);
 process.exit(fail ? 1 : 0);

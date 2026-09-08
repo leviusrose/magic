@@ -70,7 +70,8 @@
       stopShort: '止', moveShort: '動',   // 図の中と一言に横並びで出す短縮版
       bait: 'タケノコ', center: '中央',
       purple: '紫', blue: '青', left: '左', right: '右',
-      avoidBoth: '両方踏まない', coneOnly: '扇だけ踏む', lineOnly: '直線だけ踏む', coneAndLine: '両方踏む',
+      // ⑦ 単発の直線(サンダガ)/扇(ブリザガ)。予兆が本当 = 本物なので踏まない
+      lineShape: '直線', coneShape: '扇', avoidTell: '踏まない', stepTell: '踏む',
     },
 
     // 自キャラ判定のフォールバック (戦闘中に起動したとき用)。フルネーム or 空。
@@ -97,8 +98,10 @@
     FLOOD: ['C392', 'C393', 'C3A1', 'C3A2'],    // 無の氾濫 (C392/C393=本当, C3A2/C393=青が左)
     ANTILIGHT: ['C394', 'C395'],                // 白/黒アンチライト → 早デバフ解決の合図
     UPSURGE: 'C24A',                            // アルテマアップサージ → 遅デバフ解決の合図
-    MANA_CHARGE: 'BAA4',                        // マジックチャージ
-    MANA_RELEASE: 'BAA5',                       // マジックアウト
+    MANA_CHARGE: 'BAA4',                        // マジックチャージ (この後の単発 2 発の合図)
+    // マジックチャージ後にケフカが単発で撃つ 2 発。詠唱 ID で締め切りが取れる。
+    BOLT: 'C5DE',                               // もりもりサンダガ = 直線
+    CONE: 'BA95',                               // ひろげるブリザガ = 扇
     ENRAGE: 'BABB',                             // 裁きの光 (時間切れ)
   };
   var ST = {
@@ -131,16 +134,13 @@
   var TANK_JOBS = { 1: 1, 3: 1, 19: 1, 21: 1, 32: 1, 37: 1 };          // GLA MRD PLD WAR DRK GNB
   var HEAL_JOBS = { 6: 1, 24: 1, 28: 1, 33: 1, 40: 1 };                // CNJ WHM SCH AST SGE
 
-  // マジックアウト: 詠唱明け +0.3s で予兆が出て真偽が確定し、その 5.1 秒後に着弾する
-  // (cactbot dancing_mad: マジックアウト 1203.8 → サンダガ/ブリザガ 1208.9)。
-  // 答えは予兆で決まるが、実際に避け終わるまでカンペを消したくないので
-  // パネルの締め切り (= プログレスバーの 100%) は着弾側に置く。
-  var MANA_TELL_MS = 300;
-  var MANA_HIT_MS = 5100;
-  // マジックチャージ → 扇/直線の着弾までの固定間隔 (cactbot: 1164.2 → 1208.9)。
-  // 「何が溜まっているか」はチャージの時点で分かるので、詠唱を待たずにパネルを出す。
-  // 締め切りはここでは暫定で、マジックアウトの詠唱が来たら本当の着弾時刻に差し替える。
-  var MANA_CHARGE_TO_HIT_MS = 44700;
+  // マジックチャージ (69.2) から、直線 = もりもりサンダガの着弾 (77.5) と
+  // 扇 = ひろげるブリザガの着弾 (95.5) までの間隔 (cactbot dancing_mad: 1164.2 → 1172.5 / 1190.5)。
+  // チャージの時点で「この後 直線 → 扇 が単発で来る」と分かるのでパネルを出しておく。
+  // 残り秒は次に来る直線ぶん、バーは遅い扇ぶんを暫定で使い、
+  // それぞれの詠唱 (C5DE / BA95) が来たら本当の着弾時刻に差し替える。
+  var SPELL_BOLT_MS = 8300;
+  var SPELL_SPAN_MS = 26300;
   var WINDOW_SPLIT = 55;     // 早(51/36) と 遅(76/61) の境目(秒)
   var SHRIEK_SPLIT = 65;     // 視線1(60) と 視線2(69) の境目(秒)
   var RESET_AFTER_SEC = 120;
@@ -156,7 +156,7 @@
     { key: 'fire', name: '④ 炎' },
     { key: 'long', name: '⑤ 遅 雷水' },
     { key: 'gaze2', name: '⑥ 視線2' },
-    { key: 'mana', name: '⑦ マジックアウト' },
+    { key: 'spell', name: '⑦ 直線/扇' },
     { key: 'water', name: '⑧ つなみ' },
   ];
 
@@ -184,15 +184,15 @@
         fire: null,    // { at, truth }
         long: null,
         gaze2: null,
-        mana: null,    // { at, ice, thunder }
+        // ⑦ 単発の 直線(サンダガ) と 扇(ブリザガ)。解決時刻が 18 秒離れているので
+        // 1 枚に 2 行入れて、残り秒は「次に来るほう」、バーは「遅いほう(扇)」で伸ばす。
+        spell: null,   // { from, at, barAt, total, bolt:{at,truth}, cone:{at,truth} }
         water: null,   // { at, truth }
       },
       done: {},
       wound: null,     // 'white' | 'black'
       dof: null,       // 'death' | 'field'
       liveTruth: { fire: null, ice: null, thunder: null },
-      charged: { ice: null, thunder: null },
-      chargeAt: null,     // マジックチャージの時刻 (同じ瞬間の予兆を拾う窓に使う)
       alerted: {},
     };
   }
@@ -333,16 +333,11 @@
     if (onProgress(id)) return;
 
     if (AB.FLOOD.indexOf(id) >= 0) { updateLaser(id, castMs); return; }
-    if (id === AB.MANA_RELEASE) {
-      var t0 = now();
-      // マジックチャージで作った枠があればそれを伸ばす (バーがチャージから通しで進む)
-      var m = state.steps.mana ||
-        (state.steps.mana = { from: t0, ice: null, thunder: null });
-      m.at = t0 + castMs + MANA_HIT_MS;
-      m.readyAt = t0 + castMs + MANA_TELL_MS;   // ここで真偽が確定する
-      m.total = m.at - m.from;
-      return;
-    }
+    // マジックチャージ後の単発 2 発。真偽は「その時点の予兆」なので、
+    // 詠唱で締め切りを決めて、そのときの予兆を焼き付ける。
+    // ★ なぞなぞマジックでも同じ技が飛ぶので、チャージ済み (s.spell がある) のときだけ拾う。
+    if (id === AB.BOLT) { updateSpell('bolt', castMs, 'thunder'); return; }
+    if (id === AB.CONE) { updateSpell('cone', castMs, 'ice'); return; }
     if (CONFIG.debug && (id === AB.INFERNO || id === AB.TSUNAMI || id === AB.MANA_CHARGE)) {
       console.log('[dmp4] cast', id, p[5]);
     }
@@ -426,21 +421,13 @@
       touch(); return;
     }
     if (id === ST.CHARGE_ICE || id === ST.CHARGE_THUNDER) {
-      // 溜まった予兆は「溜真/溜偽」として仮表示できるので、ここで枠を作っておく。
-      // 詠唱まで待つと ⑦ だけ 33 秒あとから現れて発火が遅く見える。
-      if (!s.mana) {
-        var mt = now();
-        s.mana = { from: mt, at: mt + MANA_CHARGE_TO_HIT_MS, total: MANA_CHARGE_TO_HIT_MS,
-          readyAt: null, ice: null, thunder: null };
+      // 「この後 直線 と 扇 が単発で来る」の合図。ここでパネルを出しておく
+      // (詠唱まで待つと ⑦ だけ数秒あとから現れて発火が遅く見える)。
+      if (!s.spell) {
+        var t0 = now();
+        s.spell = { from: t0, at: t0 + SPELL_BOLT_MS, barAt: t0 + SPELL_SPAN_MS,
+          total: SPELL_SPAN_MS, bolt: null, cone: null };
       }
-      // 頭マーカーは同じ瞬間に前後どちらの順でも飛んでくる。以前は 250ms の
-      // タイマーで待っていたが、それだと巻き戻し再生 (時計を差し替えて一気に流す)
-      // で再現できないので、「チャージ直後 1 秒の頭マーカーもスナップに入れる」
-      // 形にして順序に依存しないようにした。
-      var key = (id === ST.CHARGE_ICE) ? 'ice' : 'thunder';
-      state.chargeAt = now();
-      state.charged[key] = state.liveTruth[key];
-      if (CONFIG.debug) console.log('[dmp4] チャージ', key, state.charged[key]);
       touch(); return;
     }
     if (mine) {
@@ -463,8 +450,13 @@
     var h = HEAD[icon];
     if (!h) return;
     state.liveTruth[h[0]] = h[1];
-    // チャージと同じ瞬間に来た予兆はスナップにも反映する (行の前後に依存しない)
-    if (state.chargeAt != null && now() - state.chargeAt <= 1000) state.charged[h[0]] = h[1];
+    // 予兆は詠唱の前後どちらの順でも飛んでくる。まだ来ていない技のぶんなら焼き直す
+    // (来てしまった技のぶんは at を過ぎているので触らない = 順序に依存しない)。
+    var sp = state.steps.spell;
+    if (sp) {
+      var row = (h[0] === 'thunder') ? sp.bolt : (h[0] === 'ice') ? sp.cone : null;
+      if (row && now() < row.at) row.truth = h[1];
+    }
     if (CONFIG.debug) console.log('[dmp4] なぞなぞ', h[0], h[1] ? '本当' : '嘘');
   }
 
@@ -510,11 +502,43 @@
     l.total = l.at - l.from;
   }
 
-  // マジックアウト: チャージ時の予兆の真偽と、出た瞬間の予兆の真偽が一致なら「その予兆は本当」。
-  function computeManaOut() {
-    var c = state.charged, l = state.liveTruth;
-    if (c.ice == null || c.thunder == null || l.ice == null || l.thunder == null) return null;
-    return { ice: (c.ice === l.ice), thunder: (c.thunder === l.thunder) };
+  // ⑦ マジックチャージ後の単発 2 発。真偽はなぞなぞの予兆そのままで、
+  //   予兆が本当 → 予兆を避ける (踏まない) / 嘘 → 予兆に入る (踏む)。
+  // ★ マジックアウトの真偽 (チャージ時の予兆と出た瞬間の予兆の XNOR) は出さない。
+  //   ユーザ方針: 単発 2 発で分かるものだけ可視化する。
+  function updateSpell(which, castMs, elem) {
+    var sp = state.steps.spell;
+    if (!sp) return;                       // マジックチャージ前 (なぞなぞの同じ技) は拾わない
+    sp[which] = { at: now() + castMs, truth: state.liveTruth[elem], elem: elem };
+    syncSpell();
+  }
+  // 残り秒は「次に来るほう」、バーは「最初に見えた時 → 遅いほう」で伸ばす。
+  // 2 つを 1 枚に入れているので、この 2 つの締め切りは分けて持つ必要がある。
+  function syncSpell() {
+    var sp = state.steps.spell;
+    if (!sp) return;
+    var t = now(), ends = [];
+    if (sp.bolt) ends.push(sp.bolt.at);
+    if (sp.cone) ends.push(sp.cone.at);
+    if (!ends.length) return;
+    var pending = ends.filter(function (x) { return x > t; });
+    sp.at = pending.length ? Math.min.apply(null, pending) : Math.max.apply(null, ends);
+    sp.barAt = Math.max(sp.barAt, Math.max.apply(null, ends));
+    sp.total = sp.barAt - sp.from;
+  }
+  // 図の 1 行ぶん。まだ詠唱が来ていない行は truth=null で「?」になる。
+  function spellRow(r, label) {
+    return { label: label, truth: r ? r.truth : null, done: !!(r && now() > r.at) };
+  }
+  function spellRows() {
+    var sp = state.steps.spell;
+    return [spellRow(sp && sp.bolt, L('lineShape')), spellRow(sp && sp.cone, L('coneShape'))];
+  }
+  // 一言に出すのは「次に処理する行」。両方終わっていれば最後の行。
+  function spellNext() {
+    var rows = spellRows();
+    for (var i = 0; i < rows.length; i++) if (!rows[i].done) return rows[i];
+    return rows[rows.length - 1];
   }
 
   // 雷水の枠 → 'spread'(1人受け) / 'stack'(3人頭割り)
@@ -568,13 +592,12 @@
     if (CONFIG.showLaserSide && z.dir) t += ' ' + (z.dir === 'left' ? L('left') : L('right'));
     return t;
   }
-  function manaText(m) {
-    if (!m) return null;
-    if (m.ice == null) return '?';
-    if (m.ice && m.thunder) return L('avoidBoth');
-    if (!m.ice && m.thunder) return L('coneOnly');
-    if (m.ice && !m.thunder) return L('lineOnly');
-    return L('coneAndLine');
+  function spellText() {
+    if (!state.steps.spell) return null;
+    var r = spellNext();
+    if (r.truth == null) return '?';
+    // 予兆が本当 = 本物なので踏まない / 嘘 = 見せかけなので踏む
+    return r.label + ' ' + (r.truth ? L('avoidTell') : L('stepTell'));
   }
 
   function stepValue(key, short) {
@@ -587,7 +610,7 @@
       case 'gaze2': return gazeText(s.gaze2, short);
       case 'fire': return chaosText(s.fire, true);
       case 'water': return chaosText(s.water, false);
-      case 'mana': return manaText(s.mana);
+      case 'spell': return spellText();
     }
     return null;
   }
@@ -653,16 +676,12 @@
         var bt = baitTarget();
         return { kind: 'chaos', bait: b, known: b != null, atCenter: bt.atCenter, myAngle: bt.angle };
       }
-      case 'mana': {
-        var m = s.mana;
-        var c = state.charged;
-        return {
-          // 位置ではなく真偽そのものが答えなので、図ではなくテキストで出す
-          kind: 'truth', ice: m && m.ice, thunder: m && m.thunder,
-          known: !!(m && m.ice != null),
-          // マジックチャージで溜まった予兆の真偽。答えは出た瞬間まで確定しないので仮表示に使う。
-          charged: (c.ice != null && c.thunder != null) ? { ice: c.ice, thunder: c.thunder } : null,
-        };
+      case 'spell': {
+        if (!s.spell) return { kind: 'truth', rows: [], known: false };
+        var rows = spellRows();
+        // 枠の黄色 (確定) は「次に処理する行が分かっているか」で点ける。
+        // 両方揃うまで待つと、扇が分かるのは 95.5 秒 = 処理の直前になってしまう。
+        return { kind: 'truth', rows: rows, known: spellNext().truth != null };
       }
     }
     return null;
@@ -670,7 +689,8 @@
   function sceneSig(sc) {
     if (!sc) return '-';
     return [sc.kind, sc.known, sc.action, sc.bomb, sc.truth, sc.mine, sc.bait, sc.color, sc.dir,
-      sc.showSide, sc.ice, sc.thunder, sc.atCenter, sc.charged ? (sc.charged.ice + '/' + sc.charged.thunder) : '',
+      sc.showSide, sc.atCenter,
+      (sc.rows || []).map(function (r) { return r.label + r.truth + r.done; }).join(','),
       (sc.myAngles || []).map(Math.round).join(','), sc.myAngle == null ? '' : Math.round(sc.myAngle)].join('|');
   }
 
@@ -734,12 +754,8 @@
     var t = now();
     syncSize();
 
-    // マジックアウトは詠唱明けの瞬間に確定させる
-    var m = state.steps.mana;
-    if (m && m.ice == null && t >= (m.readyAt != null ? m.readyAt : m.at)) {
-      var r = computeManaOut();
-      if (r) { m.ice = r.ice; m.thunder = r.thunder; }
-    }
+    // ⑦ は 直線 → 扇 の 2 段構えなので、残り秒の対象を毎フレーム選び直す
+    syncSpell();
 
     var live = isLive();
     var cur = null;
@@ -759,7 +775,10 @@
       // プログレスバー: 100% になった時点でこのパネルが消えて左に詰まる
       var step = state.steps[P.key];
       var total = (step && step.total) ? step.total / 1000 : null;
-      var prog = (left != null && total) ? (1 - left / total) : 0;
+      // ⑦ は「残り秒の対象 (次に来るほう)」と「バーの締め切り (遅いほう)」が違うので、
+      // barAt があるパネルはそちらでバーを計算する。
+      var barLeft = (step && step.barAt != null) ? (step.barAt - t) / 1000 : left;
+      var prog = (barLeft != null && total) ? (1 - barLeft / total) : 0;
       pan.fill.style.width = Math.round(Math.max(0, Math.min(1, prog)) * 100) + '%';
 
       var sc = scene(P.key);
@@ -843,8 +862,8 @@
       ' p4:' + state.active + ' GC:' + state.gcCount + '/' + state.gcDebuffSets +
       ' tell(E/C):' + tf(state.tell.exdeath) + '/' + tf(state.tell.chaos) +
       ' wound:' + (state.wound || '-') + ' dof:' + (state.dof || '-') +
-      ' charge(i/t):' + tf(state.charged.ice) + '/' + tf(state.charged.thunder) +
-      ' live(i/t):' + tf(state.liveTruth.ice) + '/' + tf(state.liveTruth.thunder);
+      ' live(i/t):' + tf(state.liveTruth.ice) + '/' + tf(state.liveTruth.thunder) +
+      ' spell:' + spellRows().map(function (r) { return r.label + tf(r.truth); }).join('/');
   }
   function tf(v) { return v == null ? '-' : (v ? 'T' : 'F'); }
 
@@ -865,7 +884,9 @@
       state.steps.fire = { at: t + 36000, total: 36000, truth: true };
       state.steps.long = { at: t + 41000, total: 41000, kind: null, truth: null, bomb: false, mine: true };
       state.steps.gaze2 = { at: t + 49000, total: 49000, truth: false, players: ['Demo C'], mine: true };
-      state.steps.mana = { at: t + 55000, total: 55000, ice: false, thunder: true };
+      state.steps.spell = { from: t, at: t + 50000, barAt: t + 55000, total: 55000,
+        bolt: { at: t + 50000, truth: false, elem: 'thunder' },
+        cone: { at: t + 55000, truth: true, elem: 'ice' } };
       state.steps.water = { at: t + 60000, total: 60000, truth: false };
       var iv = setInterval(function () { if (state && state.active) touch(); else clearInterval(iv); }, 5000);
     }, 400);
@@ -877,7 +898,7 @@
     _state: function () { return state; },
     _diag: diag,
     _computeLaser: computeLaser,
-    _computeManaOut: computeManaOut,
+
     _stepValue: stepValue,
     _scene: scene,
     _setRole: function (r) { ownRole = r; },

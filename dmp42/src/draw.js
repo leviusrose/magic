@@ -262,38 +262,39 @@
   }
 
   // マジックアウト: 位置ではなく真偽そのものが答えなので、図にせず 扇/直線 を 踏む/踏まない の 2 行で出す。
+  // ⑦ 単発の 直線(サンダガ) と 扇(ブリザガ)。位置ではなく「踏む/踏まない」が答えなので
+  // 図ではなく 2 行のテキストで出す。上の行が先に来るほう (直線 77.5 → 扇 95.5)。
+  //   truth = null … その技の詠唱がまだ来ていない → 「?」を破線で
+  //   done  = true … もう過ぎた → 薄くして残す (次の行に目が行くように)
   function paintTruth(ctx, G, sc) {
     var y0 = G.t1, y1 = G.v0, h = (y1 - y0) / 2;
-    if (!sc.known) {
-      // 答えは出た瞬間まで確定しない。チャージ済みの予兆だけ「溜」として破線で仮表示する。
-      var c = sc.charged;
-      [['扇', c ? c.ice : null], ['直線', c ? c.thunder : null]].forEach(function (row, i) {
-        var cy = y0 + h * (i + 0.5);
+    var rows = sc.rows && sc.rows.length ? sc.rows : [{ label: '直線' }, { label: '扇' }];
+    rows.slice(0, 2).forEach(function (row, i) {
+      var cy = y0 + h * (i + 0.5);
+      var x = G.W * 0.05, w = G.W * 0.90, top = cy - h * 0.40, hh = h * 0.80;
+      ctx.globalAlpha = row.done ? 0.32 : 1;
+      if (row.truth == null) {
         ctx.fillStyle = 'rgba(120,140,170,0.10)';
-        ctx.fillRect(G.W * 0.05, cy - h * 0.40, G.W * 0.90, h * 0.80);
+        ctx.fillRect(x, top, w, hh);
         ctx.strokeStyle = 'rgba(120,140,170,0.40)'; ctx.lineWidth = Math.max(1, G.S * 0.006);
         ctx.setLineDash([G.S * 0.03, G.S * 0.026]);
-        ctx.strokeRect(G.W * 0.05, cy - h * 0.40, G.W * 0.90, h * 0.80);
+        ctx.strokeRect(x, top, w, hh);
         ctx.setLineDash([]);
-        txtBox(ctx, row[0], G.W * 0.27, cy, G.W * 0.34, h * 0.48, COL.dim, 800);
-        txtBox(ctx, row[1] == null ? '?' : ('溜' + (row[1] ? '真' : '偽')),
-          G.W * 0.68, cy, G.W * 0.44, h * 0.54, COL.dim, 900);
-      });
-      return;
-    }
-    [['扇', sc.ice], ['直線', sc.thunder]].forEach(function (row, i) {
-      var cy = y0 + h * (i + 0.5);
-      var step = !row[1];                  // 嘘 = 予兆の中が安全 = 踏む
-      // 色: 踏む = 赤系 / 踏まない = 緑系。逆にしたいときはこの 2 行の三項を入れ替える。
-      var tint = step ? 'rgba(255,90,90,0.16)' : 'rgba(90,220,160,0.16)';
-      var ink = step ? COL.stop : COL.go;
-      ctx.fillStyle = tint;
-      ctx.fillRect(G.W * 0.05, cy - h * 0.40, G.W * 0.90, h * 0.80);
-      ctx.strokeStyle = ink; ctx.globalAlpha = 0.5;
-      ctx.lineWidth = Math.max(1, G.S * 0.006);
-      ctx.strokeRect(G.W * 0.05, cy - h * 0.40, G.W * 0.90, h * 0.80); ctx.globalAlpha = 1;
-      txtBox(ctx, row[0], G.W * 0.27, cy, G.W * 0.34, h * 0.48, COL.ink, 800);
-      txtBox(ctx, step ? '踏む' : '踏まない', G.W * 0.68, cy, G.W * 0.44, h * 0.58, ink, 900);
+        txtBox(ctx, row.label, G.W * 0.27, cy, G.W * 0.34, h * 0.48, COL.dim, 800);
+        txtBox(ctx, '?', G.W * 0.68, cy, G.W * 0.44, h * 0.54, COL.dim, 900);
+      } else {
+        var step = !row.truth;             // 嘘 = 予兆の中が安全 = 踏む
+        // 色: 踏む = 赤系 / 踏まない = 緑系。逆にしたいときはこの 2 行の三項を入れ替える。
+        ctx.fillStyle = step ? 'rgba(255,90,90,0.16)' : 'rgba(90,220,160,0.16)';
+        ctx.fillRect(x, top, w, hh);
+        var ink = step ? COL.stop : COL.go;
+        ctx.strokeStyle = ink; ctx.lineWidth = Math.max(1, G.S * 0.006);
+        ctx.globalAlpha *= 0.5; ctx.strokeRect(x, top, w, hh);
+        ctx.globalAlpha = row.done ? 0.32 : 1;
+        txtBox(ctx, row.label, G.W * 0.27, cy, G.W * 0.34, h * 0.48, COL.ink, 800);
+        txtBox(ctx, step ? '踏む' : '踏まない', G.W * 0.68, cy, G.W * 0.44, h * 0.58, ink, 900);
+      }
+      ctx.globalAlpha = 1;
     });
   }
 

@@ -85,7 +85,7 @@
 
     <div class="card hint">
       本体（<code>src/api.js / draw.js / dmp4.js</code>）をそのまま読み込んで再生します。
-      内蔵シナリオは cactbot のタイムライン（GC1→GC2→GC3→無の氾濫→マジックアウト）と
+      内蔵シナリオは cactbot のタイムライン（GC1→GC2→GC3→無の氾濫→単発サンダガ/ブリザガ）と
       同じ間隔で ACT ログ相当の行を流すので、実戦と同じ順に図が埋まり、終わった図は薄くなります。
     </div>
   </div>
@@ -131,7 +131,7 @@
 
     // cactbot タイムライン (おちょくりソウル詠唱開始を 0 とした相対秒)。
     // ★ 詠唱開始と着弾は別。ログに流すのは「詠唱開始」なので xxxCast を使う。
-    //   無の氾濫は着弾 60.7 / マジックアウトは着弾 108.8 なので、詠唱はその分だけ手前。
+    //   無の氾濫は着弾 60.7 / 単発サンダガは 77.5 / 単発ブリザガは 95.5 なので、詠唱はその分だけ手前。
     var T = {
       phaseCast: 0,
       gc1Cast: 10.2, chaos1Cast: 15.2, gc1Hit: 18.9, chaos1Hit: 23.9,
@@ -139,7 +139,8 @@
       gc3Cast: 39.9, gc3Hit: 49.6,
       floodCast: 55.7, antilight: 61.1,          // 着弾 60.7 (詠唱 5.0s)
       manaCharge: 69.2, upsurge: 87.5,
-      manaReleaseCast: 102.1,                    // 着弾 108.8 (詠唱 6.7s)
+      boltCast: 73.5, boltHit: 77.5,             // 単発サンダガ = 直線 (詠唱 4.0s は推定)
+      coneCast: 91.5, coneHit: 95.5,             // 単発ブリザガ = 扇
     };
 
     var SCN = {
@@ -148,18 +149,18 @@
         mine1: { id: '15A8', name: 'フォークライトニング', dur: 51 },
         mine2: { id: '15AA', name: '加速度爆弾', dur: 61 },
         gaze: 2, wound: '15A5', dof: '1558', floodId: 'C393',
-        chargeIce: '02A4', chargeThunder: '02A5', liveIce: '02A3', liveThunder: '02A5' },
+        lineTell: '02A5', coneTell: '02A4' },      // 直線=嘘(踏む) / 扇=本当(踏まない)
       b: { label: '早=頭割り / 視線1持ち',
         gc1: false, chaos1: false, gc2: true, chaos2: true,
         mine1: { id: '15A9', name: '水属性圧縮', dur: 51 },
         mine2: null,
         gaze: 1, wound: '15A6', dof: '1C6', floodId: 'C3A1',
-        chargeIce: '02A3', chargeThunder: '02A6', liveIce: '02A3', liveThunder: '02A6' },
+        lineTell: '02A6', coneTell: '02A3' },      // 直線=本当(踏まない) / 扇=嘘(踏む)
       c: { label: 'デバフ薄め（頭割りのみ）',
         gc1: true, chaos1: false, gc2: false, chaos2: true,
         mine1: null, mine2: null, gaze: 0,
         wound: '1318', dof: '566', floodId: 'C3A2',
-        chargeIce: '02A4', chargeThunder: '02A6', liveIce: '02A4', liveThunder: '02A5' },
+        lineTell: '02A5', coneTell: '02A3' },      // どちらも嘘 = 両方踏む
     };
     var TELL_EX = { true: '462', false: '461' };
     var TELL_CH = { true: '460', false: '45F' };
@@ -206,18 +207,24 @@
       at(T.floodCast, function () { dispatch(cast(NEO, 'ネオエクスデス', s.floodId, '無の氾濫', 5.0)); });
       at(T.antilight, function () { dispatch(ability(NEO, 'ネオエクスデス', 'C394', 'ホワイトアンチライト')); });
 
-      at(T.manaCharge - 0.2, function () { dispatch(head(s.chargeIce)); dispatch(head(s.chargeThunder)); });
       at(T.manaCharge, function () {
         dispatch(ability(KEFKA, 'ケフカ', 'BAA4', 'マジックチャージ'));
         dispatch(stat('5CC', 'ブリザガチャージ', 60, KEFKA, 'ケフカ'));
         dispatch(stat('5CD', 'サンダガチャージ', 60, KEFKA, 'ケフカ'));
       });
-      at(T.upsurge, function () { dispatch(ability(KEFKA, 'ケフカ', 'C24A', 'アルテマアップサージ')); });
-      at(T.manaReleaseCast, function () {
-        dispatch(head(s.liveIce)); dispatch(head(s.liveThunder));
-        dispatch(cast(KEFKA, 'ケフカ', 'BAA5', 'マジックアウト', 6.7));
+      // ⑦ マジックチャージ後の単発 2 発。予兆は詠唱と一緒に出る
+      at(T.boltCast, function () {
+        dispatch(head(s.lineTell));
+        dispatch(cast(KEFKA, 'ケフカ', 'C5DE', 'もりもりサンダガ', 4.0));
       });
-      at(T.manaReleaseCast + 25, function () { out.textContent = s.label + '：完了'; });
+      at(T.boltHit, function () { dispatch(ability(KEFKA, 'ケフカ', 'BA9F', 'もりもりサンダガ')); });
+      at(T.upsurge, function () { dispatch(ability(KEFKA, 'ケフカ', 'C24A', 'アルテマアップサージ')); });
+      at(T.coneCast, function () {
+        dispatch(head(s.coneTell));
+        dispatch(cast(KEFKA, 'ケフカ', 'BA95', 'ひろげるブリザガ', 4.0));
+      });
+      at(T.coneHit, function () { dispatch(ability(KEFKA, 'ケフカ', 'BA98', 'ひろげるブリザガ')); });
+      at(T.coneHit + 20, function () { out.textContent = s.label + '：完了'; });
     }
 
     document.querySelectorAll('[data-scn]').forEach(function (b) {
@@ -232,7 +239,7 @@
       catch (e) { return -1; }
     }
     var KEEP_ABIL = { 'C2DC':1,'BB14':1,'BB20':1,'BB21':1,'C392':1,'C393':1,'C3A1':1,'C3A2':1,
-                      'C394':1,'C395':1,'C24A':1,'BAA4':1,'BAA5':1,'BABB':1 };
+                      'C394':1,'C395':1,'C24A':1,'BAA4':1,'C5DE':1,'BA95':1,'BABB':1 };
     var KEEP_STAT = { '808':1,'15A5':1,'15A6':1,'15A7':1,'15A8':1,'15A9':1,'15AA':1,'15AB':1,'15AC':1,
                       '1317':1,'1318':1,'1558':1,'566':1,'1C6':1,'5CC':1,'5CD':1,'5CA':1 };
     var loaded = null;
