@@ -102,6 +102,7 @@
     // マジックチャージ後にケフカが単発で撃つ 2 発。詠唱 ID で締め切りが取れる。
     BOLT: 'C5DE',                               // もりもりサンダガ = 直線
     CONE: 'BA95',                               // ひろげるブリザガ = 扇
+    MANA_RELEASE: 'BAA5',                       // マジックアウト (⑦ を使い終わる時刻)
     ENRAGE: 'BABB',                             // 裁きの光 (時間切れ)
   };
   var ST = {
@@ -141,6 +142,10 @@
   // それぞれの詠唱 (C5DE / BA95) が来たら本当の着弾時刻に差し替える。
   var SPELL_BOLT_MS = 8300;
   var SPELL_SPAN_MS = 26300;
+  // マジックチャージ (69.2) → マジックアウトで溜めた 2 発が着弾する 113.9 まで。
+  // ⑦ の答えはマジックアウトで使うので、カードが薄くなるのはここ。
+  var SPELL_OUT_MS = 44700;
+  var MANA_HIT_MS = 5100;      // マジックアウト着弾 (108.8) → 扇/直線の着弾 (113.9)
   var WINDOW_SPLIT = 55;     // 早(51/36) と 遅(76/61) の境目(秒)
   var SHRIEK_SPLIT = 65;     // 視線1(60) と 視線2(69) の境目(秒)
   var RESET_AFTER_SEC = 120;
@@ -338,6 +343,12 @@
     // ★ なぞなぞマジックでも同じ技が飛ぶので、チャージ済み (s.spell がある) のときだけ拾う。
     if (id === AB.BOLT) { updateSpell('bolt', castMs, 'thunder'); return; }
     if (id === AB.CONE) { updateSpell('cone', castMs, 'ice'); return; }
+    if (id === AB.MANA_RELEASE) {
+      // ⑦ の答えはマジックアウトで使い切る。カードが薄くなる時刻をここで確定させる。
+      var sp0 = state.steps.spell;
+      if (sp0) { sp0.outAt = now() + castMs + MANA_HIT_MS; syncSpell(); }
+      return;
+    }
     if (CONFIG.debug && (id === AB.INFERNO || id === AB.TSUNAMI || id === AB.MANA_CHARGE)) {
       console.log('[dmp4] cast', id, p[5]);
     }
@@ -430,8 +441,8 @@
         //   待つと扇だけ長いあいだ「?」のままになる)。
         //   締め切りは暫定値で置き、詠唱が来たら本当の着弾時刻に差し替える。
         //   チャージ後に新しい予兆が来た場合は onHeadMarker が焼き直す。
-        s.spell = { from: t0, at: t0 + SPELL_BOLT_MS, barAt: t0 + SPELL_SPAN_MS,
-          total: SPELL_SPAN_MS,
+        s.spell = { from: t0, at: t0 + SPELL_BOLT_MS, barAt: t0 + SPELL_OUT_MS,
+          total: SPELL_OUT_MS, outAt: t0 + SPELL_OUT_MS,
           bolt: { at: t0 + SPELL_BOLT_MS, truth: state.liveTruth.thunder, elem: 'thunder' },
           cone: { at: t0 + SPELL_SPAN_MS, truth: state.liveTruth.ice, elem: 'ice' } };
       }
@@ -529,6 +540,7 @@
     var t = now(), ends = [];
     if (sp.bolt) ends.push(sp.bolt.at);
     if (sp.cone) ends.push(sp.cone.at);
+    if (sp.outAt != null) ends.push(sp.outAt);
     if (!ends.length) return;
     var pending = ends.filter(function (x) { return x > t; });
     sp.at = pending.length ? Math.min.apply(null, pending) : Math.max.apply(null, ends);
@@ -542,12 +554,16 @@
   function spellRows() {
     var sp = state.steps.spell;
     var rows = [spellRow(sp && sp.bolt, L('lineShape')), spellRow(sp && sp.cone, L('coneShape'))];
-    // ★直線と扇は 18 秒の時間差で来るので、光らせるのは「いま処理する 1 行」だけ。
-    //   両方確定していても 2 行とも色を付けると、どっちを今やるのか分からない。
-    //   順番待ちの行は答えを出したまま薄くする (消さない)。
+    // ★直線と扇は 18 秒の時間差で来るので、最初は直線だけ光らせる。
+    //   ただし一度順番が来た行は光ったままにする (答えはマジックアウトで使うので、
+    //   済んだからといって暗くしない)。暗いのは「まだ順番が来ていない行」だけ。
+    //   カード全体が薄くなるのはマジックアウトで使い終わったとき。
     var cur = -1;
     for (var i = 0; i < rows.length; i++) if (!rows[i].done) { cur = i; break; }
-    rows.forEach(function (r, i) { r.active = (i === cur); });
+    rows.forEach(function (r, i) {
+      r.active = (i === cur);            // いま処理する行 = 枠を強めに出す
+      r.lit = (cur < 0) || (i <= cur);   // 順番が来た / 過ぎた行は光ったまま
+    });
     return rows;
   }
   // 一言に出すのは「次に処理する行」。両方終わっていれば最後の行。
@@ -686,7 +702,13 @@
       case 'short': case 'long': return windowScene(key);
       case 'gaze1': case 'gaze2': {
         var g = s[key];
-        return { kind: 'gaze', truth: g && g.truth, mine: !!(g && g.mine), known: !!(g && g.truth != null) };
+        // ★視線は TH が北側 / DPS が南側 で処理する (南北 = 頭割り側と同じ)。
+        //   どっちに行くかはルールで決まっているので文字には出さず、図の自分の位置だけに出す。
+        var gr = myRole(), gp = CONFIG.positions.stack;
+        return { kind: 'gaze', truth: g && g.truth, mine: !!(g && g.mine),
+          // ロールがまだ取れていなければ null (draw.js 側で北に置く)
+          myAngle: (gr && gp[gr] != null) ? mod360(gp[gr]) : null,
+          known: !!(g && g.truth != null) };
       }
       case 'fire': case 'water': {
         var b = chaosBait(s[key], key === 'fire');
@@ -710,7 +732,7 @@
     if (!sc) return '-';
     return [sc.kind, sc.known, sc.action, sc.bomb, sc.truth, sc.mine, sc.bait, sc.color, sc.dir,
       sc.showSide, sc.atCenter,
-      (sc.rows || []).map(function (r) { return r.label + r.truth + r.done + r.active; }).join(','),
+      (sc.rows || []).map(function (r) { return r.label + r.truth + r.done + r.active + r.lit; }).join(','),
       (sc.myAngles || []).map(Math.round).join(','), sc.myAngle == null ? '' : Math.round(sc.myAngle)].join('|');
   }
 

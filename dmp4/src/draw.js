@@ -243,8 +243,10 @@
       ctx.fillStyle = 'rgba(255,139,107,0.30)'; ctx.fill();
       ctx.strokeStyle = COL.boss; ctx.lineWidth = Math.max(1, G.S * 0.009); ctx.stroke();
       labelIn(ctx, '視', G.cx, G.cy, r, COL.boss);
-      arrow(ctx, G, 0, sc.truth);
-      mineAt(ctx, G, 0, 0.68);
+      // 視線は TH が北側 / DPS が南側。ロールが取れていないうちは北に置く。
+      var ga = sc.myAngle == null ? 0 : sc.myAngle;
+      arrow(ctx, G, ga, sc.truth);
+      mineAt(ctx, G, ga, 0.68);
     }
   }
 
@@ -264,8 +266,9 @@
   // マジックアウト: 位置ではなく真偽そのものが答えなので、図にせず 扇/直線 を 踏む/踏まない の 2 行で出す。
   // ⑦ 単発の 直線(サンダガ) と 扇(ブリザガ)。位置ではなく「踏む/踏まない」が答えなので
   // 図ではなく 2 行のテキストで出す。上の行が先に来るほう (直線 77.5 → 扇 95.5)。
-  //   active = true … いま処理する行 → これだけ色を付ける
-  //   active = false… 順番待ち / もう過ぎた → 答えは出したまま薄くする
+  //   lit    = false… まだ順番が来ていない行 → 答えは出したまま薄くする
+  //   lit    = true … 順番が来た / 過ぎた行 → 光ったまま (答えはマジックアウトで使う)
+  //   active = true … いま処理する行 → 枠を強めに出す
   //   truth  = null … 予兆をまだ拾えていない → 「?」を破線で
   function paintTruth(ctx, G, sc) {
     var y0 = G.t1, y1 = G.v0, h = (y1 - y0) / 2;
@@ -273,8 +276,8 @@
     rows.slice(0, 2).forEach(function (row, i) {
       var cy = y0 + h * (i + 0.5);
       var x = G.W * 0.05, w = G.W * 0.90, top = cy - h * 0.40, hh = h * 0.80;
-      // 光るのは 1 行だけ。順番待ちは 0.40、済んだ行は 0.25。
-      var alpha = row.done ? 0.25 : (row.active === false ? 0.40 : 1);
+      // 暗いのは「まだ順番が来ていない行」だけ (0.40)。
+      var alpha = (row.lit === false) ? 0.40 : 1;
       ctx.globalAlpha = alpha;
       if (row.truth == null) {
         ctx.fillStyle = 'rgba(120,140,170,0.10)';
@@ -291,8 +294,11 @@
         ctx.fillStyle = step ? 'rgba(255,90,90,0.16)' : 'rgba(90,220,160,0.16)';
         ctx.fillRect(x, top, w, hh);
         var ink = step ? COL.stop : COL.go;
-        ctx.strokeStyle = ink; ctx.lineWidth = Math.max(1, G.S * 0.006);
-        ctx.globalAlpha = alpha * 0.5; ctx.strokeRect(x, top, w, hh);
+        // いま処理する行は枠を強めにして、済んだ行と見分けられるようにする
+        ctx.strokeStyle = ink;
+        ctx.lineWidth = Math.max(1, G.S * (row.active ? 0.011 : 0.006));
+        ctx.globalAlpha = alpha * (row.active ? 0.95 : 0.35);
+        ctx.strokeRect(x, top, w, hh);
         ctx.globalAlpha = alpha;
         txtBox(ctx, row.label, G.W * 0.27, cy, G.W * 0.34, h * 0.48, COL.ink, 800);
         txtBox(ctx, step ? '踏む' : '踏まない', G.W * 0.68, cy, G.W * 0.44, h * 0.58, ink, 900);

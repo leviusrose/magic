@@ -550,8 +550,8 @@ emit(stat('5CD', 'サンダガチャージ', 60, '4000AAAA'));
 const sFrom = st().steps.spell.from;
 check('暫定の残り秒は次に来る直線ぶん 8.3s',
   Math.round((st().steps.spell.at - sFrom) / 1000) === 8, st().steps.spell.at - sFrom);
-check('暫定のバーは遅い扇ぶん 26.3s',
-  Math.round((st().steps.spell.barAt - sFrom) / 1000) === 26, st().steps.spell.barAt - sFrom);
+check('暫定のバーはマジックアウトまで 44.7s',
+  Math.round((st().steps.spell.barAt - sFrom) / 1000) === 45, st().steps.spell.barAt - sFrom);
 advance(4000);
 emit(head('02A5'));
 emit(cast('4000AAAA', 'ケフカ', 'C5DE', 'もりもりサンダガ', '4.300'));
@@ -577,14 +577,39 @@ emit(stat('5CC', 'ブリザガチャージ', 60, '4000AAAA'));
 emit(stat('5CD', 'サンダガチャージ', 60, '4000AAAA'));
 let rw = scn('spell').rows;
 check('両方とも答えは出ている', rw[0].truth === true && rw[1].truth === true);
-check('光るのは直線だけ', rw[0].active === true && rw[1].active === false,
-  JSON.stringify(rw.map((r) => r.active)));
+check('最初に光るのは直線だけ', rw[0].lit === true && rw[1].lit === false,
+  JSON.stringify(rw.map((r) => r.lit)));
+check('いま処理するのは直線', rw[0].active === true && rw[1].active === false);
 emit(cast('4000AAAA', 'ケフカ', 'C5DE', 'もりもりサンダガ', '4.000'));
 advance(4100);                            // 直線が着弾
 rw = scn('spell').rows;
-check('直線が済んだら光るのは扇だけ', rw[0].active === false && rw[1].active === true,
-  JSON.stringify(rw.map((r) => r.active)));
+// ★済んだ直線を暗くすると「1個目が暗くなる」と言われるので、光ったままにする
+check('直線が済んでも光ったまま', rw[0].lit === true, JSON.stringify(rw.map((r) => r.lit)));
+check('扇も光る', rw[1].lit === true);
+check('いま処理するのは扇', rw[0].active === false && rw[1].active === true);
 check('済んだ直線も答えは残る', rw[0].truth === true && rw[0].done === true);
+// カードが薄くなるのはマジックアウトで使い終わったとき
+emit(cast('4000AAAA', 'ケフカ', 'BAA5', 'マジックアウト', '6.700'));
+check('締め切りはマジックアウト着弾の 5.1s 後',
+  Math.round((st().steps.spell.outAt - NOW) / 1000) === 12, st().steps.spell.outAt - NOW);
+
+console.log('30) 視線は TH が北側 / DPS が南側 に立つ (図の自分の位置だけに出す)');
+emit('260|t|0'); tick();
+emit(cast('4000AAAA', 'ケフカ', 'C2DC', 'おちょくりソウル', '5.000'));
+emit(tell('462'));                        // ネオエクスデス 本当
+emit(stat('15A7', '呪詛の叫声', 60, OTHER));   // 他人が視線持ち
+O.dmp4._setRole('th');
+check('TH は北 (0°)', scn('gaze1').myAngle === 0, scn('gaze1').myAngle);
+O.dmp4._setRole('dps');
+check('DPS は南 (180°)', scn('gaze1').myAngle === 180, scn('gaze1').myAngle);
+check('視線2 も同じ基準', scn('gaze2').myAngle === 180 || scn('gaze2').myAngle == null);
+check('一言に方角は出さない', val('gaze1').indexOf('北') < 0 && val('gaze1').indexOf('南') < 0,
+  val('gaze1'));
+O.dmp4._setRole('auto');
+const gAuto = scn('gaze1').myAngle;
+check('ロールが不明なら null / 分かれば 0 か 180 (NaN にならない)',
+  gAuto === null || gAuto === 0 || gAuto === 180, gAuto);
+O.dmp4._setRole('dps');
 
 console.log(`\n結果: ${pass} pass / ${fail} fail`);
 process.exit(fail ? 1 : 0);
