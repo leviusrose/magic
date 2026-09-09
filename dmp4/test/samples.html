@@ -161,26 +161,28 @@
     { title: '⑥ 視線2', value: '見ない', mine: true }, '自分が視線持ち → 中央へ行って外を向く');
 
   // ---------- ⑦ 直線 / 扇 ----------
-  function row(label, truth, done) { return { label: label, truth: truth, done: !!done }; }
+  function row(label, truth, done, active) {
+    return { label: label, truth: truth, done: !!done, active: !!active };
+  }
   var s7 = section('⑦ 直線（もりもりサンダガ 77.5s）/ 扇（ひろげるブリザガ 95.5s）',
     'マジックチャージのあとにケフカが単発で撃つ 2 発。位置ではなく 踏む/踏まない が答えなので'
     + '図をやめて 2 行で出す。上が先に来る直線。予兆が本当なら本物なので踏まない、嘘なら踏む。'
-    + '真偽はなぞなぞの予兆そのままなので、マジックチャージの時点で両方とも判定する'
-    + '（扇の詠唱は 22 秒あとなので、待つと扇だけ長いあいだ「?」になる）。'
-    + '過ぎた行は薄くして残し、残り秒とパネル名は次に来るほうに切り替わる。'
+    + '真偽はマジックチャージと同時に飛んでくる予兆で決まるので、その時点で両方とも判定する。'
+    + 'ただし直線と扇は 18 秒の時間差で来るので、'
+    + '色が付くのは「いま処理する 1 行」だけ。順番待ちの行と済んだ行は答えを出したまま薄くする。'
     + 'マジックアウトで溜めた 2 発が同時に来るぶんは、この 2 発で分かるので出さない。');
-  cell(s7, { kind: 'truth', rows: [row('直線', false), row('扇', true)], known: true },
-    { title: '⑦ 直線/扇', value: '直線 踏む' }, 'マジックチャージ直後。両方まとめて判定される', 0.10);
-  cell(s7, { kind: 'truth', rows: [row('直線', true), row('扇', false)], known: true },
+  cell(s7, { kind: 'truth', rows: [row('直線', false, false, true), row('扇', true)], known: true },
+    { title: '⑦ 直線/扇', value: '直線 踏む' }, 'マジックチャージ直後。光るのは直線だけ', 0.10);
+  cell(s7, { kind: 'truth', rows: [row('直線', true, false, true), row('扇', false)], known: true },
     { title: '⑦ 直線/扇', value: '直線 踏まない' }, '直線の予兆が本当 → 避ける', 0.30);
-  cell(s7, { kind: 'truth', rows: [row('直線', false, true), row('扇', true)], known: true },
-    { title: '⑦ 直線/扇', value: '扇 踏まない' }, '直線は終わった（薄く残す）。残り秒は扇に移る', 0.55);
-  cell(s7, { kind: 'truth', rows: [row('直線', true, true), row('扇', false)], known: true },
+  cell(s7, { kind: 'truth', rows: [row('直線', false, true), row('扇', true, false, true)], known: true },
+    { title: '⑦ 直線/扇', value: '扇 踏まない' }, '直線が済んだので今度は扇が光る', 0.55);
+  cell(s7, { kind: 'truth', rows: [row('直線', true, true), row('扇', false, false, true)], known: true },
     { title: '⑦ 直線/扇', value: '扇 踏む' }, '扇の予兆が嘘 → 扇に入る', 0.88);
   cell(s7, { kind: 'truth', rows: [row('直線', true, true), row('扇', true, true)], known: true },
     { title: '⑦ 直線/扇', value: '扇 踏まない' }, '両方終わった状態', 1);
-  cell(s7, { kind: 'truth', rows: [row('直線', null), row('扇', null)], known: false },
-    { title: '⑦ 直線/扇', value: '直線 ?' }, 'なぞなぞの予兆をまだ拾えていない状態', 0.10);
+  cell(s7, { kind: 'truth', rows: [row('直線', null, false, true), row('扇', null)], known: false },
+    { title: '⑦ 直線/扇', value: '直線 ?' }, '予兆をまだ拾えていない状態', 0.10);
 
   // ---------- ⑧ つなみ ----------
   var s8 = section('⑧ つなみ（混沌の水の着弾）',

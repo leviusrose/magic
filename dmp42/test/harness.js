@@ -569,6 +569,23 @@ check('両方確定したら一言は次に来る扇', val('spell') === '扇 踏
 advance(4100);
 check('両方 done', scn('spell').rows.every((r) => r.done === true));
 
+console.log('29) ⑦ は「いま処理する 1 行」だけ光る (2 行同時に色を付けない)');
+emit('260|t|0'); tick();
+emit(cast('4000AAAA', 'ケフカ', 'C2DC', 'おちょくりソウル', '5.000'));
+emit(head('02A6')); emit(head('02A4'));   // 直線 本当 / 扇 本当
+emit(stat('5CC', 'ブリザガチャージ', 60, '4000AAAA'));
+emit(stat('5CD', 'サンダガチャージ', 60, '4000AAAA'));
+let rw = scn('spell').rows;
+check('両方とも答えは出ている', rw[0].truth === true && rw[1].truth === true);
+check('光るのは直線だけ', rw[0].active === true && rw[1].active === false,
+  JSON.stringify(rw.map((r) => r.active)));
+emit(cast('4000AAAA', 'ケフカ', 'C5DE', 'もりもりサンダガ', '4.000'));
+advance(4100);                            // 直線が着弾
+rw = scn('spell').rows;
+check('直線が済んだら光るのは扇だけ', rw[0].active === false && rw[1].active === true,
+  JSON.stringify(rw.map((r) => r.active)));
+check('済んだ直線も答えは残る', rw[0].truth === true && rw[0].done === true);
+
 console.log(`\n結果: ${pass} pass / ${fail} fail`);
 process.exit(fail ? 1 : 0);
 }

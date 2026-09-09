@@ -541,7 +541,14 @@
   }
   function spellRows() {
     var sp = state.steps.spell;
-    return [spellRow(sp && sp.bolt, L('lineShape')), spellRow(sp && sp.cone, L('coneShape'))];
+    var rows = [spellRow(sp && sp.bolt, L('lineShape')), spellRow(sp && sp.cone, L('coneShape'))];
+    // ★直線と扇は 18 秒の時間差で来るので、光らせるのは「いま処理する 1 行」だけ。
+    //   両方確定していても 2 行とも色を付けると、どっちを今やるのか分からない。
+    //   順番待ちの行は答えを出したまま薄くする (消さない)。
+    var cur = -1;
+    for (var i = 0; i < rows.length; i++) if (!rows[i].done) { cur = i; break; }
+    rows.forEach(function (r, i) { r.active = (i === cur); });
+    return rows;
   }
   // 一言に出すのは「次に処理する行」。両方終わっていれば最後の行。
   function spellNext() {
@@ -703,7 +710,7 @@
     if (!sc) return '-';
     return [sc.kind, sc.known, sc.action, sc.bomb, sc.truth, sc.mine, sc.bait, sc.color, sc.dir,
       sc.showSide, sc.atCenter,
-      (sc.rows || []).map(function (r) { return r.label + r.truth + r.done; }).join(','),
+      (sc.rows || []).map(function (r) { return r.label + r.truth + r.done + r.active; }).join(','),
       (sc.myAngles || []).map(Math.round).join(','), sc.myAngle == null ? '' : Math.round(sc.myAngle)].join('|');
   }
 

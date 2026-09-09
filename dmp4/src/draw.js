@@ -264,15 +264,18 @@
   // マジックアウト: 位置ではなく真偽そのものが答えなので、図にせず 扇/直線 を 踏む/踏まない の 2 行で出す。
   // ⑦ 単発の 直線(サンダガ) と 扇(ブリザガ)。位置ではなく「踏む/踏まない」が答えなので
   // 図ではなく 2 行のテキストで出す。上の行が先に来るほう (直線 77.5 → 扇 95.5)。
-  //   truth = null … その技の詠唱がまだ来ていない → 「?」を破線で
-  //   done  = true … もう過ぎた → 薄くして残す (次の行に目が行くように)
+  //   active = true … いま処理する行 → これだけ色を付ける
+  //   active = false… 順番待ち / もう過ぎた → 答えは出したまま薄くする
+  //   truth  = null … 予兆をまだ拾えていない → 「?」を破線で
   function paintTruth(ctx, G, sc) {
     var y0 = G.t1, y1 = G.v0, h = (y1 - y0) / 2;
     var rows = sc.rows && sc.rows.length ? sc.rows : [{ label: '直線' }, { label: '扇' }];
     rows.slice(0, 2).forEach(function (row, i) {
       var cy = y0 + h * (i + 0.5);
       var x = G.W * 0.05, w = G.W * 0.90, top = cy - h * 0.40, hh = h * 0.80;
-      ctx.globalAlpha = row.done ? 0.32 : 1;
+      // 光るのは 1 行だけ。順番待ちは 0.40、済んだ行は 0.25。
+      var alpha = row.done ? 0.25 : (row.active === false ? 0.40 : 1);
+      ctx.globalAlpha = alpha;
       if (row.truth == null) {
         ctx.fillStyle = 'rgba(120,140,170,0.10)';
         ctx.fillRect(x, top, w, hh);
@@ -289,8 +292,8 @@
         ctx.fillRect(x, top, w, hh);
         var ink = step ? COL.stop : COL.go;
         ctx.strokeStyle = ink; ctx.lineWidth = Math.max(1, G.S * 0.006);
-        ctx.globalAlpha *= 0.5; ctx.strokeRect(x, top, w, hh);
-        ctx.globalAlpha = row.done ? 0.32 : 1;
+        ctx.globalAlpha = alpha * 0.5; ctx.strokeRect(x, top, w, hh);
+        ctx.globalAlpha = alpha;
         txtBox(ctx, row.label, G.W * 0.27, cy, G.W * 0.34, h * 0.48, COL.ink, 800);
         txtBox(ctx, step ? '踏む' : '踏まない', G.W * 0.68, cy, G.W * 0.44, h * 0.58, ink, 900);
       }
