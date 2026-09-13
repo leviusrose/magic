@@ -5,7 +5,10 @@
 <title>P4 カンペ (2段) リプレイテスター</title>
 <link rel="stylesheet" href="../styles.css">
 <style>
-  html,body{ background:#0b1220; }
+  /* ★ ../styles.css は OverlayPlugin 用に html,body を height:100% / overflow:hidden /
+     user-select:none にしている。ここは普通のページなので戻す (戻さないとスクロールできず、
+     画面より下の操作パネルに触れなくなる)。 */
+  html,body{ background:#0b1220; height:auto; overflow:visible; user-select:text; }
   body{ margin:0; color:#cdddf2; font-family:"Segoe UI",system-ui,"Noto Sans JP",sans-serif;
     display:flex; gap:18px; padding:18px; flex-wrap:wrap; align-items:flex-start; }
   /* オーバーレイの position:fixed をこのステージ枠に閉じ込める */

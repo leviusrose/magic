@@ -6,9 +6,14 @@
 <title>絶妖星乱舞 P4 カンペ シミュレータ</title>
 <link rel="stylesheet" href="../dmp4/styles.css">
 <style>
-  html, body { background:#0b1220; }
+  /* ★ ../dmp4/styles.css は OverlayPlugin 用に html,body を
+     height:100% / overflow:hidden / user-select:none にしている。
+     ここは普通のページなので必ず戻す (戻さないとスマホでスクロールできず、
+     下の操作パネルが見切れたまま触れなくなる)。
+     広い画面だけ下の @media でビューポート固定に戻す。 */
+  html, body { background:#0b1220; height:auto; overflow:visible; }
   body { margin:0; color:#cdddf2; font-family:"Segoe UI",system-ui,"Noto Sans JP",sans-serif;
-    padding:10px 14px 14px; box-sizing:border-box; }
+    padding:10px 14px 14px; box-sizing:border-box; user-select:text; }
   h1 { font-size:16px; margin:0; font-weight:800; display:inline; }
   .lead { font-size:12px; color:#5f758f; margin:0 0 8px; line-height:1.5; display:inline; }
   .lead b { color:#8fb2ff; font-weight:700; }
@@ -21,8 +26,8 @@
 
   /* 広い画面ではビューポート全体を使う。余った縦はイベント一覧が埋める。 */
   @media (min-width: 881px) {
-    html, body { height:100%; }
-    body { display:grid; grid-template-rows:auto minmax(0,1fr); overflow:hidden; }
+    html, body { height:100%; overflow:hidden; }
+    body { display:grid; grid-template-rows:auto minmax(0,1fr); }
     .layout { min-height:0; height:100%; }
     .main { height:100%; min-height:0; }
     .mainInner { display:grid; grid-template-rows:auto minmax(0,1fr); min-height:0; height:100%; }
@@ -83,7 +88,8 @@
        スクロール追従の計算が壊れる (一番下まで飛ぶ)。 */
   ol.events { position:relative; list-style:none; margin:8px 0 0; padding:0;
     height:300px; overflow-y:auto; border:1px solid #243550; border-radius:8px; }
-  @media (max-width: 880px) { ol.events { height:220px; } }
+  /* スマホではイベント一覧を短くする。下にある操作パネルまでのスクロール量を減らすため。 */
+  @media (max-width: 880px) { ol.events { height:150px; } }
   ol.events li { display:grid; grid-template-columns:4.4em 6.2em minmax(0,1fr); gap:8px;
     align-items:baseline; padding:4px 9px; font-size:12.5px;
     border-top:1px solid rgba(36,53,80,0.6); color:#7f92ab; }
