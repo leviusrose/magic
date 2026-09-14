@@ -611,6 +611,35 @@ check('ロールが不明なら null / 分かれば 0 か 180 (NaN にならな�
   gAuto === null || gAuto === 0 || gAuto === 180, gAuto);
 O.dmp4._setRole('dps');
 
+console.log('31) 無の氾濫: 既定は真偽で反転しない / floodTruthFlips=true で cactbot と同じ');
+const opp31 = (c) => (c === 'white' ? 'black' : 'white');
+function lz31(wound, dof, id) { st().wound = wound; st().dof = dof; return O.dmp4._computeLaser(id).color; }
+// ★2026-09-15 の実測: GC3=真 / 生者の傷(紫) / アラガンフィールド / 氾濫=嘘 → 青が正解だった
+emit('260|t|0'); tick();
+emit(cast('4000AAAA', 'ケフカ', 'C2DC', 'おちょくりソウル', '5.000'));
+check('実測ケース: 紫+アラガン+嘘 → 青', lz31('white', 'field', 'C3A1') === 'black',
+  lz31('white', 'field', 'C3A1'));
+check('本当でも同じ色 (反転しない)', lz31('white', 'field', 'C392') === 'black');
+
+// cactbot の式をそのまま写したもの
+function cactbot31(wound, dof, id) {
+  const floodTrue = (id === 'C392' || id === 'C393');
+  const keep = (dof === 'death' && floodTrue) || (dof === 'field' && !floodTrue);
+  return keep ? wound : opp31(wound);
+}
+const ALL31 = [];
+['white', 'black'].forEach((w) => ['death', 'field'].forEach((d) =>
+  ['C392', 'C393', 'C3A1', 'C3A2'].forEach((id) => ALL31.push([w, d, id]))));
+let same = ALL31.filter(([w, d, id]) => lz31(w, d, id) === cactbot31(w, d, id)).length;
+check('既定では cactbot と 8/16 一致 (嘘のとき逆)', same === 8, same + '/16');
+
+O.dmp4._config.floodTruthFlips = true;
+same = ALL31.filter(([w, d, id]) => lz31(w, d, id) === cactbot31(w, d, id)).length;
+check('floodTruthFlips=true なら 16/16 一致', same === 16, same + '/16');
+check('true のとき 紫+アラガン+嘘 → 紫', lz31('white', 'field', 'C3A1') === 'white');
+O.dmp4._config.floodTruthFlips = false;
+check('戻すと既定に戻る', lz31('white', 'field', 'C3A1') === 'black');
+
 console.log(`\n結果: ${pass} pass / ${fail} fail`);
 process.exit(fail ? 1 : 0);
 }

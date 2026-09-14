@@ -85,6 +85,11 @@
     showStatus: false,  // 左下に自キャラ検出状況
     debug: false,       // 上部に診断バナー + 未知 ID をコンソールへ
     demo: false,        // ゲームログ無しで表示確認
+    // 無の氾濫の色を、氾濫自体の真偽 (C392/C393=本当, C3A1/C3A2=嘘) で反転させるか。
+    // ★ 既定 false = 反転させない。実戦の観測に合わせている (computeLaser のコメント参照)。
+    //   cactbot は反転する実装なので、true にすると cactbot と同じ結果になる。
+    //   実戦で合わなくなったらここだけ true にして試せる。
+    floodTruthFlips: false,
     // 時計の差し替え。ミリ秒を返す関数を入れると now() がそれを使う。
     // シミュレータが「任意の時点に飛ぶ / 早送りする」ために握る。実戦では null。
     clock: null,
@@ -484,20 +489,26 @@
   // 無の氾濫。行く色は GC3 のデバフだけで確定する。
   //   死の超越 = 自分の傷の色そのまま / アラガンフィールド = 逆の色
   //
-  // 出す色は「そのビームに当たりに行く色」(cactbot も Stand in ${color})。
+  // 出す色は「そのビームに当たりに行く色」(cactbot も Stand in ${color})。避けるのではなく当たる。
   //   white = ホワイトアンチライト C394 = 紫 / black = ブラックアンチライト C395 = 青。
   //
   // ★★ 無の氾濫そのものの真偽 (C392/C393 = 本当、C3A1/C3A2 = 嘘) は色に反映させない。
   //   cactbot は嘘のとき色を反転する実装:
   //     keep = (death && floodTrue) || (field && !floodTrue);
   //     color = keep ? wound : opposite(wound)
-  //   なので、嘘 (C3A1/C3A2) のときは cactbot と逆の色になる (16 通り中 8 通りが不一致)。
-  //   ★ これは意図的。ユーザ確認済み (2026-09-07 指示 / 2026-09-15 再確認)。
-  //     このPTの処理法では真偽はどちらでも同じ色に行く。
-  //     バグではないので「cactbot と違う」という理由だけで直さないこと。
-  //   もし実戦で合わなかったら needColor() の戻り値を
-  //     floodTrue ? ... : opposite(...) で包めば cactbot と同じになる
-  //     (ただし真偽が分かるのは詠唱時なので、デバフでの早出しはできなくなる)。
+  //   なので嘘のときは cactbot と逆の色になる (16 通り中 8 通りが不一致)。
+  //
+  //   ★ 反転させないほうが実戦と合う。2026-09-15 の実測:
+  //       グランドクロス3 = 真 / 生者の傷(紫) / アラガンフィールド / 氾濫 = 嘘
+  //       → ここの式は「青」を出す。cactbot の式なら反転して「紫」。
+  //       実際に青のビームに当たりに行って正解だった。
+  //     つまり cactbot の keep はこのケースでは合っていない。
+  //     「cactbot と違う」という理由だけで反転を入れ直さないこと (一度やって戻した)。
+  //
+  //   ※ 未検証: グランドクロス3 が「嘘」のとき。嘘だと傷/超越が別 ID で来る
+  //      (1317/1318 = 傷、1558 = 死の超越。真だと 15A5/15A6、566)。cactbot はどちらも
+  //      同じ意味に正規化しているのでこちらも合わせてあるが、実ログでの確認はまだ。
+  //   → 試したいときは CONFIG.floodTruthFlips = true にすれば cactbot と同じ挙動になる。
   // 詠唱 (11 秒後) で決まるのは左右だけ (C3A2/C393 = 青が自分から見て左)。
   function opposite(c) { return c === 'white' ? 'black' : 'white'; }
   function needColor() {
@@ -505,8 +516,11 @@
     return state.dof === 'death' ? state.wound : opposite(state.wound);
   }
   function computeLaser(abilId) {
-    var color = needColor();                      // ← 真偽で反転させない
-    if (color == null) return null;
+    var base = needColor();
+    if (base == null) return null;
+    var floodTrue = (abilId === 'C392' || abilId === 'C393');
+    // 既定 (floodTruthFlips=false) では反転させない。true にすると cactbot と同じ。
+    var color = (!CONFIG.floodTruthFlips || floodTrue) ? base : opposite(base);
     var blueLeft = (abilId === 'C3A2' || abilId === 'C393');
     var dir = (color === 'black')
       ? (blueLeft ? 'left' : 'right')
@@ -518,14 +532,15 @@
   // 詠唱時間に置き換えてしまうとバーが 0% に巻き戻るので、from を持ち続ける。
   function updateLaser(abilId, castMs, durMs) {
     var s = state.steps;
-    var color = needColor();
-    if (color == null) return;
+    var base = needColor();
+    if (base == null) return;
     var l = s.laser || (s.laser = { from: now(), at: now(), total: 0, color: null, dir: null });
-    l.color = color;
     if (abilId == null) {
+      l.color = base;
       l.at = now() + durMs;                       // 傷デバフが切れるまでを仮の締め切りにする
     } else {
       var lz = computeLaser(abilId);
+      l.color = lz.color;                         // floodTruthFlips=true のときだけここで変わる
       l.dir = lz.dir; l.id = abilId;
       l.at = now() + castMs;                      // 詠唱が来たら本当の着弾時刻に差し替える
     }
