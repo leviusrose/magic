@@ -48,6 +48,7 @@ global.AudioContext = function () {
 const handlers = {};
 global.window.Overlay = { api: { on: (t, cb) => { (handlers[t] = handlers[t] || []).push(cb); }, start: () => Promise.resolve(), ready: () => Promise.resolve(), mode: () => 'legacy' } };
 
+require(path.join(__dirname, '..', 'src', 'geo.js'));
 require(path.join(__dirname, '..', 'src', 'draw.js'));
 require(path.join(__dirname, '..', 'src', 'dmp4.js'));
 const O = global.window.Overlay;
@@ -639,6 +640,175 @@ check('floodTruthFlips=true なら 16/16 一致', same === 16, same + '/16');
 check('true のとき 紫+アラガン+嘘 → 紫', lz31('white', 'field', 'C3A1') === 'white');
 O.dmp4._config.floodTruthFlips = false;
 check('戻すと既定に戻る', lz31('white', 'field', 'C3A1') === 'black');
+
+console.log('32) 並び: ⑦ つなみ → ⑧ 直線/扇 (設置してからマジックアウトの安置へ)');
+const src32 = require('fs').readFileSync(path.join(__dirname, '..', 'src', 'dmp4.js'), 'utf8');
+check('⑦ つなみ が ⑧ 直線/扇 より前', src32.indexOf("'⑦ つなみ'") > 0 && src32.indexOf("'⑦ つなみ'") < src32.indexOf("'⑧ 直線/扇'"));
+
+console.log('33) マジックアウト: チャージの答えをアウトの予兆との XNOR で上書きする');
+// 実ログ (2026-10-02) と同じ並び: 予兆は 5CD/5CC と同時、アウトの予兆は BAA5 詠唱の 0.1 秒前
+function out33(chT, chI, outT, outI) {
+  emit('260|t|0'); tick();
+  emit(cast('4000AAAA', 'ケフカ', 'C2DC', 'おちょくりソウル', '5.000'));
+  emit(cast('4000AAAA', 'ケフカ', 'BAA4', 'マジックチャージ', '2.700'));
+  advance(6000);
+  emit(stat('5CD', 'チャージ：サンダガ', 9999, '4000AAAA')); emit(head(chT ? '02A6' : '02A5'));
+  emit(cast('4000AAAA', 'ケフカ', 'C5DE', 'もりもりサンダガ', '4.700'));
+  advance(18000);
+  emit(stat('5CC', 'チャージ：ブリザガ', 9999, '4000AAAA')); emit(head(chI ? '02A4' : '02A3'));
+  emit(cast('4000AAAA', 'ケフカ', 'BA95', 'ひろげるブリザガ', '4.700'));
+  advance(11200);
+  const before = val('spell');
+  emit(head(outI ? '02A4' : '02A3')); emit(head(outT ? '02A6' : '02A5'));
+  advance(90);
+  emit(cast('4000AAAA', 'ケフカ', 'BAA5', 'マジックアウト', '6.700'));
+  tick();
+  return { before, after: val('spell'), rows: scn('spell').rows };
+}
+let r33 = out33(true, false, false, true);   // 2026-10-02 の実ログと同じ
+check('アウト前はチャージの答え (扇 踏む)', r33.before === '扇 踏む', r33.before);
+check('実ログ: 直線 本当→嘘 / 扇 嘘→本当 → 両方 踏む', r33.after === '両方 踏む', r33.after);
+check('2 行とも上書きされる', r33.rows.every((r) => r.out && r.truth === false), JSON.stringify(r33.rows));
+check('2 発同時なので 2 行とも「いま」', r33.rows.every((r) => r.active && r.lit));
+r33 = out33(true, true, true, true);
+check('一致 (本当/本当) → 両方 踏まない', r33.after === '両方 踏まない', r33.after);
+r33 = out33(false, false, false, false);
+check('一致 (嘘/嘘) → 両方 踏まない', r33.after === '両方 踏まない', r33.after);
+r33 = out33(true, true, false, true);
+check('直線だけ不一致 → 直線だけ 踏む', r33.after === '直線だけ 踏む', r33.after);
+r33 = out33(false, true, false, false);
+check('扇だけ不一致 → 扇だけ 踏む', r33.after === '扇だけ 踏む', r33.after);
+check('枠は点いたまま', scn('spell').known === true);
+advance(12000);
+check('アウト着弾後は done', scn('spell').rows.every((r) => r.done));
+// 予兆を BAA5 の後に受けても同じ (順番に依存しない)
+emit('260|t|0'); tick();
+emit(cast('4000AAAA', 'ケフカ', 'C2DC', 'おちょくりソウル', '5.000'));
+emit(stat('5CD', 'チャージ：サンダガ', 9999, '4000AAAA')); emit(head('02A6'));
+emit(cast('4000AAAA', 'ケフカ', 'C5DE', 'もりもりサンダガ', '4.700'));
+advance(18000);
+emit(stat('5CC', 'チャージ：ブリザガ', 9999, '4000AAAA')); emit(head('02A3'));
+emit(cast('4000AAAA', 'ケフカ', 'BA95', 'ひろげるブリザガ', '4.700'));
+advance(11000);
+emit(cast('4000AAAA', 'ケフカ', 'BAA5', 'マジックアウト', '6.700'));
+check('アウトの予兆が来るまでは上書きしない', val('spell') === '扇 踏む', val('spell'));
+emit(head('02A4')); emit(head('02A5'));
+check('詠唱のあとに予兆が来ても同じ結果', val('spell') === '両方 踏む', val('spell'));
+// 単発の扇の予兆 (着弾前) はアウト扱いにしない
+emit('260|t|0'); tick();
+emit(cast('4000AAAA', 'ケフカ', 'C2DC', 'おちょくりソウル', '5.000'));
+emit(stat('5CD', 'チャージ：サンダガ', 9999, '4000AAAA')); emit(head('02A6'));
+emit(cast('4000AAAA', 'ケフカ', 'C5DE', 'もりもりサンダガ', '4.700'));
+advance(18000);
+emit(head('02A4'));
+check('扇の着弾前の予兆は扇の行に入る (アウト扱いしない)', st().steps.spell.out == null && val('spell') === '扇 踏まない', val('spell'));
+
+console.log('34) 実際の範囲と設置位置 (実ログ 2026-10-02 と同じ並び・座標。秒は P4 開始から)');
+{
+  const G = O.dmp4geo;
+  const at34 = (sec) => { NOW = sec * 1000; tick(); };
+  const pcast = (src, id, x, y, h) => `20|t|${src}|ケフカ|${id}|-|${src}|ケフカ|4.700|100.00|100.00|0.00|${h}`;
+  const extra = (src, id, x, y, h) => `263|t|${src}|${id}|${x}|${y}|0.000|${h}`;
+  const helper = (src, id, x, y, h) => { emit(pcast(src, id, x, y, h)); emit(extra(src, id, x, y, h)); };
+  emit('260|t|0'); at34(1000);
+  emit(cast('4000AAAA', 'ケフカ', 'C2DC', 'おちょくりソウル', '5.000'));
+  emit(tell('45F'));                                      // カオス 嘘
+  emit(tell('462'));                                      // ネオエクスデス 本当
+  O.dmp4._setRole('dps');
+  at34(1019.0);
+  emit(stat('15A7', '呪詛の叫声', 59.5, OTHER));            // 視線1 は他人 → 自分は南側
+  emit(stat('15A8', 'フォークライトニング', 75.4, SELF));   // 遅 = フォーク (本当 → 1人受け = 東)
+  at34(1033.8);
+  emit(stat('15AA', '加速度爆弾', 35.7, OTHER));            // 2 セット目
+  at34(1023.9);
+  emit(stat('15AB', '混沌の炎', 61.3, SELF));               // → 85.2 で置く (嘘 = ドーナツ)
+  at34(1038.7);
+  emit(stat('15AC', '混沌の水', 69.3, SELF));               // → 108.0 で置く (嘘 = タケノコ)
+  // ④ 途中で死んだ人の炎はその場ですぐ発動する → 置いたものとして扱わない
+  at34(1044.4); emit(head('02A4'));                      // なぞなぞマジック 3 回目の古い予兆 (扇 本当)
+  at34(1060);
+  helper('4000F001', 'BB23', 110, 100, -3.142);
+  check('④ 切れる前の発動 (死亡) は無視', !scn('fire').placed.length, JSON.stringify(scn('fire').placed));
+  at34(1085.2);
+  [[100.24, 100.97], [100.18, 100.15], [99.63, 100.24]].forEach(([x, y], i) => helper('4000F01' + i, 'BB23', x, y, -3.142));
+  check('④ 置いたら実際の位置で描く', scn('fire').placed.length === 3 && scn('fire').placed[0].type === 'donut', JSON.stringify(scn('fire').placed));
+  check('④ 残り秒は発動 (90.0) まで延びる', Math.abs((st().steps.fire.at - NOW) / 1000 - 4.7) < 0.01, (st().steps.fire.at - NOW) / 1000);
+  check('④ 一言はドーナツのまま 中央', val('fire') === '中央', val('fire'));
+  at34(1091); check('④ 発動後は消える', !scn('fire').placed.length);
+
+  // ⑧ マジックチャージ → 単発の直線
+  check('⑧ チャージ前は常設欄に黄枠なし', scn('spell').chips.every((c) => !c.active));
+  at34(1072.65);
+  emit(stat('5CD', 'チャージ：サンダガ', 9999, '4000AAAA')); emit(head('02A6'));
+  emit(cast('4000AAAA', 'ケフカ', 'C5DE', 'もりもりサンダガ', '4.700'));
+  helper('40001C3C', 'BA9F', 96.45, 75.24, 0.79); helper('40001C3D', 'BA9F', 82.29, 89.37, 0.79);
+  let sc8 = scn('spell');
+  check('③ 単発の直線の範囲を ③ に重ねる', (scn('gaze1').overlay || []).length === 2, JSON.stringify(scn('gaze1').overlay));
+  check('③ 263 の座標を使う', scn('gaze1').overlay.some((z) => z.x === 96.45 && z.y === 75.24));
+  const mv3 = scn('gaze1').moveTo;
+  check('③ 行き先は中央付近の帯 (本物が当たらない +5 側) に乗る', mv3 && mv3.offset === 5, JSON.stringify(mv3));
+  check('③ 行き先は本物の帯の外', mv3 && scn('gaze1').overlay.filter((z) => z.dmg).every((z) => !G.inZone(z, mv3.x, mv3.y)));
+  check('③ 南側 (DPS) から横スライド', mv3 && mv3.y > 100, JSON.stringify(mv3));
+  check('⑧ は図のまま (範囲はアウトのときだけ)', sc8.kind === 'spellmap' && sc8.zones.length === 0 && sc8.which == null, sc8.which);
+  check('⑧ 常設欄: 直線 踏まない (今) / 扇 ?', sc8.chips.map((c) => c.label + c.text + (c.active ? '*' : '')).join() === '直線踏まない*,扇?',
+    sc8.chips.map((c) => c.label + c.text + (c.active ? '*' : '')).join());
+  check('⑧ 一言 直線 踏まない', val('spell') === '直線 踏まない', val('spell'));
+  check('⑧ 扇はなぞなぞの古い予兆を使わない (?)', scn('spell').chips[1].text === '?', scn('spell').chips[1].text);
+  check('⑤ にはまだ何も重ねない', !scn('long').overlay);
+  at34(1085); check('⑧ 単発の間 (詠唱前) は黄枠なし', scn('spell').chips.every((c) => !c.active));
+  at34(1079.5);
+  check('③ 着弾後しばらくで重ねるのをやめる', !scn('gaze1').overlay);
+  check('⑧ 常設欄の直線は済み・答えは残る', scn('spell').chips[0].done && scn('spell').chips[0].text === '踏まない');
+  // 単発の扇 (嘘)
+  at34(1090.8);
+  emit(stat('5CC', 'チャージ：ブリザガ', 9999, '4000AAAA')); emit(head('02A3'));
+  emit(cast('4000AAAA', 'ケフカ', 'BA95', 'ひろげるブリザガ', '4.700'));
+  helper('40001C32', 'BA9E', 99.99, 99.99, -0.79); helper('40001C33', 'BA9B', 99.99, 99.99, -2.36);
+  helper('40001C34', 'BA9E', 99.99, 99.99, 2.36); helper('40001C35', 'BA9B', 99.99, 99.99, 0.79);
+  check('⑤ 単発の扇の範囲を ⑤ に重ねる', (scn('long').overlay || []).length === 4);
+  const mv5 = (scn('long').moveTo || [])[0];
+  const b5 = mv5 && (Math.atan2(mv5.x - 100, -(mv5.y - 100)) * 180 / Math.PI + 360) % 360;
+  check('⑤ 東の 1人受け → 当たらない南東の扇へ少し回り込む', mv5 && mv5.moved && b5 > 90 && b5 < 110, b5 && b5.toFixed(1));
+  check('⑤ 行き先は本物の扇の外', mv5 && scn('long').overlay.filter((z) => z.dmg).every((z) => !G.inZone(z, mv5.x, mv5.y)));
+  check('⑧ は図のまま', scn('spell').kind === 'spellmap' && scn('spell').zones.length === 0);
+  check('⑧ 常設欄: 扇 踏む (今)', scn('spell').chips[1].text === '踏む' && scn('spell').chips[1].active);
+  check('⑧ 扇 踏む', val('spell') === '扇 踏む', val('spell'));
+  at34(1097.1); check('⑤ 着弾後しばらくで重ねるのをやめる', !scn('long').overlay);
+  // マジックアウト
+  at34(1101.9); emit(head('02A4')); emit(head('02A5'));
+  at34(1102.0); emit(cast('4000AAAA', 'ケフカ', 'BAA5', 'マジックアウト', '6.700'));
+  check('⑧ 予兆の時点は答えだけ (範囲はまだ)', scn('spell').zones.length === 0 && val('spell') === '両方 踏む', val('spell'));
+  check('⑧ 常設欄は単発の答えのまま', scn('spell').chips.map((c) => c.text).join() === '踏まない,踏む');
+  check('⑧ 範囲が出るまで図の中央に答え', scn('spell').outText === '両方 踏む', scn('spell').outText);
+  // ⑦ 混沌の水を置く (タケノコ、実ログの位置)
+  at34(1108.0);
+  [[99.6, 90.3], [100.9, 107.1], [100.1, 109.3], [100.5, 108.6], [100.7, 110.8], [90.5, 100.6], [99.9, 100.0]]
+    .forEach(([x, y], i) => helper('4000B00' + i, 'BB25', x, y, -3.142));
+  check('⑦ 置いたら実際の位置', scn('water').placed.length === 7 && scn('water').placed[0].type === 'puddle');
+  check('⑦ タケノコを置いたら 離れる', val('water') === '離れる', val('water'));
+  at34(1108.8);
+  helper('40001C34', 'BAA1', 96.45, 75.24, 0.79); helper('40001C35', 'BAA0', 89.37, 82.29, 0.79);
+  helper('40001C36', 'BAA1', 82.29, 89.37, 0.79); helper('40001C37', 'BAA0', 75.24, 96.45, 0.79);
+  helper('40001C38', 'BA9E', 99.99, 99.99, -0.79); helper('40001C39', 'BA9B', 99.99, 99.99, -2.36);
+  helper('40001C3A', 'BA9E', 99.99, 99.99, 2.36); helper('40001C3B', 'BA9B', 99.99, 99.99, 0.79);
+  sc8 = scn('spell');
+  check('⑧ アウトの範囲図', sc8.kind === 'spellmap' && sc8.which === 'out', sc8.which);
+  check('⑧ 当たるのは BAA1 ×2 + BA9E ×2', sc8.zones.filter((z) => z.dmg).map((z) => z.id).sort().join() === 'BA9E,BA9E,BAA1,BAA1');
+  check('⑧ 行き先あり', sc8.spot != null);
+  check('⑧ 行き先は範囲外', sc8.zones.filter((z) => z.dmg).every((z) => !G.inZone(z, sc8.spot.x, sc8.spot.y)), JSON.stringify(sc8.spot));
+  const minP = Math.min(...scn('water').placed.map((w) => Math.hypot(sc8.spot.x - w.x, sc8.spot.y - w.y)));
+  check('⑧ 行き先は ⑦ のタケノコも避ける', minP >= G.GEO.puddleRadius, minP.toFixed(2));
+  check('⑧ 緑の安置は範囲だけで塗る (タケノコの中も緑)', sc8.safe.cells.some((c) => c.c >= 0 && Math.hypot(c.x - 99.9, c.y - 100) < 1));
+  check('⑧ 一言 両方 踏む', val('spell') === '両方 踏む', val('spell'));
+  check('⑧ 範囲が出たら中央の文字は消す', scn('spell').outText == null);
+  const spot34 = JSON.stringify(sc8.spot);
+  at34(1113.5);
+  check('⑧ 水が発動したあとも行き先は動かない', JSON.stringify(scn('spell').spot) === spot34, JSON.stringify(scn('spell').spot) + ' vs ' + spot34);
+  let ok34 = true;
+  try { ['fire', 'water', 'spell'].forEach(() => tick()); } catch (e) { ok34 = false; console.log(e); }
+  check('描画で例外なし', ok34);
+  at34(1116); check('⑧ 着弾後も図のまま (パネルが薄くなるだけ)', scn('spell').kind === 'spellmap');
+}
 
 console.log(`\n結果: ${pass} pass / ${fail} fail`);
 process.exit(fail ? 1 : 0);

@@ -36,9 +36,10 @@
     thunder2: 113.9,                                  // もりもりサンダガ/ひろげるブリザガ 着弾
     enrage: 118.2,
   };
-  // bolt/cone の詠唱時間は cactbot のタイムラインに無いので推定値。着弾時刻から引いて
-  // 流すので、この値を変えても解決時刻 (77.5 / 95.5) はズレない。
-  var CAST = { gc: 8.7, chaos: 8.7, flood: 5.0, manaRelease: 6.7, phase: 5.0, bolt: 4.0, cone: 4.0 };
+  // bolt/cone は実ログの詠唱時間 (4.7s)。範囲の補助アクターも同じ瞬間に詠唱する。
+  // place = 混沌の炎/水の設置 (置いた人の位置で 5 秒後に発動)。out = マジックアウトの範囲 (108.8 → 113.9)。
+  var CAST = { gc: 8.7, chaos: 8.7, flood: 5.0, manaRelease: 6.7, phase: 5.0, bolt: 4.7, cone: 4.7,
+    place: 5.0, out: 5.1 };
 
   // ---- デバフの残り時間 (秒) ----
   // ★ 実測値ではなく「解決時刻 − 付与時刻」で逆算した値。解決時刻は cactbot の
@@ -108,12 +109,64 @@
       flood: pick(FLOOD_IDS).id,
       // なぞなぞマジックの予兆 (単発 2 発とは別。古い予兆が漏れないことの確認用)
       mysteryIce: coin(), mysteryThunder: coin(),
-      // ★マジックチャージと一緒に出る予兆。⑦ (単発 2 発) の答えはこれで決まる
+      // ★マジックチャージと一緒に出る予兆。⑧ (単発 2 発) の答えはこれで決まる
       lineTruth: coin(), coneTruth: coin(),
-      // マジックアウトで出る予兆 (カンペ対象外。⑦ を邪魔しないことの確認用)
+      // マジックアウトで出る予兆。チャージ時の答えとの XNOR で ⑧ が上書きされる
       outIce: coin(), outThunder: coin(),
+      // ★範囲の位置は 単発の直線 / 単発の扇 / マジックアウト でそれぞれ独立にランダム
+      //   (実ログでも単発とアウトで直線の向きが変わった回がある)
+      boltGeo: { dir: coin(), parity: coin() }, coneGeo: { pair: coin() },
+      outLineGeo: { dir: coin(), parity: coin() }, outConeGeo: { pair: coin() },
+      // 混沌の炎/水を置く位置 (8 人ぶん。ボス下に集まっているが少しずれる)
+      firePos: jitter8(), waterPos: jitter8(),
     };
   };
+  function jitter8() {
+    var a = [];
+    for (var i = 0; i < 8; i++) a.push([100 + (Math.random() - 0.5) * 3, 100 + (Math.random() - 0.5) * 3]);
+    return a;
+  }
+
+  // ---- 範囲の補助アクター (実ログと同じ形) ----
+  // 直線: 幅 10 の帯を 45° 斜めに 4 本 (中心からのずれ ±5 / ±15)。始点は中心から 20 の線上。
+  //   dir: true = 南東向き (heading 0.785) / false = 南西向き (-0.785)
+  //   parity: 当たる (本当) / 予兆 (嘘) の 2 本が {+15,-5} か {+5,-15} か
+  // 扇: 中央から斜め 4 方向の 90° のうち対角 2 つ。pair: true = 北西+南東 / false = 南西+北東
+  var helperSeq = 0;
+  function helperLines(id, x, y, h, ct) {
+    var src = '4000C' + ('00' + (helperSeq++ % 256).toString(16).toUpperCase()).slice(-3);
+    return [
+      ['20', 't', src, 'ケフカ', id, '-', src, 'ケフカ', ct.toFixed(3), x.toFixed(2), y.toFixed(2), '0.00', h.toFixed(2)],
+      ['263', 't', src, id, x.toFixed(3), y.toFixed(3), '0.000', h.toFixed(3)],
+    ];
+  }
+  function lanes(geo, truth, ct) {
+    var h = geo.dir ? 0.785 : -0.785, dx = Math.sin(h), dy = Math.cos(h), nx = dy, ny = -dx;
+    var a = geo.parity ? [15, -5] : [5, -15], b = geo.parity ? [5, -15] : [15, -5];
+    var out = [];
+    function put(id, offs) {
+      offs.forEach(function (o) {
+        out = out.concat(helperLines(id, 100 - dx * 20 + nx * o, 100 - dy * 20 + ny * o, h, ct));
+      });
+    }
+    if (truth) put('BA9F', a);
+    else { put('BAA0', a); put('BAA1', b); }
+    return out;
+  }
+  function cones(geo, truth, ct) {
+    var a = geo.pair ? [-2.356, 0.785] : [-0.785, 2.356], b = geo.pair ? [-0.785, 2.356] : [-2.356, 0.785];
+    var out = [];
+    function put(id, hs) { hs.forEach(function (h) { out = out.concat(helperLines(id, 99.99, 99.99, h, ct)); }); }
+    if (truth) put('BA98', a);
+    else { put('BA9B', a); put('BA9E', b); }
+    return out;
+  }
+  function placements(id, pos) {
+    var out = [];
+    pos.forEach(function (q) { out = out.concat(helperLines(id, q[0], q[1], -3.142, CAST.place)); });
+    return out;
+  }
+  NS._lanes = lanes; NS._cones = cones;
 
   // ---- シナリオ → タイムライン (イベント列) ----
   // 各イベント: { t, kind, actor, label, lines[], mine }
@@ -210,54 +263,57 @@
     add(T.antilight, 'hit', 'ネオエクスデス', 'アンチライト / デスエッジ', [abil(N, 'ネオエクスデス', 'C394', 'ホワイトアンチライト')]);
 
     // --- マジックチャージ ---
-    // ★マジックチャージには予兆が同時に飛んでくる (cactbot の Mana Charge Collect が
-    //   delaySeconds 0.1 で頭マーカーを待っているのが根拠)。この予兆が
-    //   このあとの単発サンダガ/ブリザガの答えになるので、⑦ はここで両方確定する。
-    add(T.manaCharge, 'debuff', 'ケフカ', 'マジックチャージ → ⑦ 確定（直線='
-      + (scn.lineTruth ? '本当' : '嘘') + ' / 扇=' + (scn.coneTruth ? '本当' : '嘘') + '）', [
-      abil(K, 'ケフカ', 'BAA4', 'マジックチャージ'),
-      head(HEAD_THU[scn.lineTruth]), head(HEAD_ICE[scn.coneTruth]),
-      stat('5CC', 'ブリザガチャージ', 60, K, 'ケフカ'),
-      stat('5CD', 'サンダガチャージ', 60, K, 'ケフカ'),
-    ]);
+    // ★実ログでは、チャージの予兆 (頭マーカー) と 5CD/5CC は「単発の詠唱と同じ瞬間」に来る
+    //   (チャージの瞬間ではない)。範囲の補助アクターも同じ瞬間に詠唱する (263 に位置)。
+    add(T.manaCharge, 'hit', 'ケフカ', 'マジックチャージ', [abil(K, 'ケフカ', 'BAA4', 'マジックチャージ')]);
+    var fireTruth = scn.fireFirst ? scn.chaos1 : scn.chaos2;
+    var waterTruth = scn.fireFirst ? scn.chaos2 : scn.chaos1;
 
     // --- 自分が動く瞬間 (デバフ切れ) ---
     // ★ デバフ切れの時刻は cactbot のタイムラインにある実際の技 (デスボルト/デスウェイブ =
     //   雷水、デスシュリーク = 視線) の時刻をそのまま使う。DUR はそこから逆算してある。
     add(T.deathSurge, 'hit', 'ネオエクスデス', 'デスサージ', []);
     add(T.shortRes, 'resolve', '—', '② 早 雷水/加速度 ← デスボルト/デスウェイブ', [], true);
-    // ★単発サンダガ (直線)。答えはマジックチャージの予兆で既に出ている。
-    //   詠唱は締め切り (残り秒) を本当の着弾時刻に差し替えるだけ。
-    add(T.boltRes - CAST.bolt, 'cast', 'ケフカ', 'もりもりサンダガ 詠唱（⑦ 直線の締め切り確定）',
-      [cast(K, 'ケフカ', 'C5DE', 'もりもりサンダガ', CAST.bolt)]);
-    add(T.boltRes, 'resolve', 'ケフカ', '⑦ 直線 ← もりもりサンダガ 着弾',
-      [abil(K, 'ケフカ', 'BA9F', 'もりもりサンダガ')], true);
+    // ★単発サンダガ (直線)
+    add(T.boltRes - CAST.bolt, 'cast', 'ケフカ', 'もりもりサンダガ 詠唱 + 範囲（⑧ 直線 = '
+      + (scn.lineTruth ? '本当' : '嘘') + '）', [
+      stat('5CD', 'チャージ：サンダガ', 9999, K, 'ケフカ'), head(HEAD_THU[scn.lineTruth]),
+      cast(K, 'ケフカ', 'C5DE', 'もりもりサンダガ', CAST.bolt),
+    ].concat(lanes(scn.boltGeo, scn.lineTruth, CAST.bolt)));
+    add(T.boltRes, 'resolve', 'ケフカ', '⑧ 直線 ← もりもりサンダガ 着弾', [], true);
     add(T.gaze1Res, 'resolve', '—', '③ 視線1 ← デスシュリーク', [], true);
-    add(fireExp, 'resolve', 'カオス', '④ 炎 (位置を取る) ← 混沌の炎 詠唱開始', [], true);
+    add(fireExp, 'resolve', 'カオス', '④ 炎 (ボス下に置く) ← 混沌の炎 ' + (fireTruth ? 'タケノコ' : 'ドーナツ'),
+      placements(fireTruth ? 'BB22' : 'BB23', scn.firePos), true);
     add(T.upsurge, 'hit', 'ケフカ', 'アルテマアップサージ', [abil(K, 'ケフカ', 'C24A', 'アルテマアップサージ')]);
-    add(T.strayFlames, 'hit', 'カオス', '混沌の炎 着弾', [abil(C, 'カオス', 'BB22', '混沌の炎')]);
+    add(fireExp + CAST.place, 'hit', 'カオス', '混沌の炎 発動', []);
     add(T.longRes, 'resolve', '—', '⑤ 遅 雷水/加速度 ← デスボルト/デスウェイブ', [], true);
     // ★単発ブリザガ (扇)
-    add(T.coneRes - CAST.cone, 'cast', 'ケフカ', 'ひろげるブリザガ 詠唱（⑦ 扇の締め切り確定）',
-      [cast(K, 'ケフカ', 'BA95', 'ひろげるブリザガ', CAST.cone)]);
-    add(T.coneRes, 'resolve', 'ケフカ', '⑦ 扇 ← ひろげるブリザガ 着弾',
-      [abil(K, 'ケフカ', 'BA98', 'ひろげるブリザガ')], true);
+    add(T.coneRes - CAST.cone, 'cast', 'ケフカ', 'ひろげるブリザガ 詠唱 + 範囲（⑧ 扇 = '
+      + (scn.coneTruth ? '本当' : '嘘') + '）', [
+      stat('5CC', 'チャージ：ブリザガ', 9999, K, 'ケフカ'), head(HEAD_ICE[scn.coneTruth]),
+      cast(K, 'ケフカ', 'BA95', 'ひろげるブリザガ', CAST.cone),
+    ].concat(cones(scn.coneGeo, scn.coneTruth, CAST.cone)));
+    add(T.coneRes, 'resolve', 'ケフカ', '⑧ 扇 ← ひろげるブリザガ 着弾', [], true);
     add(T.gaze2Res, 'resolve', '—', '⑥ 視線2 ← デスシュリーク', [], true);
 
     // --- マジックアウト ---
+    // ★実ログではマジックアウトの予兆は詠唱 (BAA5) の 0.1 秒前に来る。
+    //   チャージ時の答えとの XNOR で ⑧ の 2 行が上書きされる。
+    var outLine = scn.lineTruth === scn.outThunder, outCone = scn.coneTruth === scn.outIce;
+    add(T.manaReleaseHit - CAST.manaRelease - 0.1, 'tell', 'ケフカ', 'マジックアウトの予兆 → ⑧ 上書き（直線='
+      + (outLine ? '踏まない' : '踏む') + ' / 扇=' + (outCone ? '踏まない' : '踏む') + '）', [
+      head(HEAD_ICE[scn.outIce]), head(HEAD_THU[scn.outThunder]),
+    ]);
     add(T.manaReleaseHit - CAST.manaRelease, 'cast', 'ケフカ', 'マジックアウト 詠唱', [
-      head(HEAD_ICE[scn.liveIce]), head(HEAD_THU[scn.liveThunder]),
       cast(K, 'ケフカ', 'BAA5', 'マジックアウト', CAST.manaRelease),
     ]);
-    add(waterExp, 'resolve', 'カオス', '⑧ つなみ (位置を取る) ← 混沌の水 詠唱開始', [], true);
-    add(T.manaReleaseHit, 'hit', 'ケフカ', 'マジックアウト 着弾 → 新しい予兆が出る（カンペ対象外）',
-      [head(HEAD_THU[scn.outThunder]), head(HEAD_ICE[scn.outIce])]);
-    add(T.straySpray, 'hit', 'カオス', '混沌の水 着弾', [abil(C, 'カオス', 'BB24', '混沌の水')]);
-    // マジックアウトで溜めた 2 発が同時に来る。真偽はチャージ時と出た瞬間の予兆の
-    // XNOR だが、ユーザ方針でカンペには出さない (単発 2 発で分かるものだけ出す)。
-    add(T.thunder2, 'hit', 'ケフカ', 'サンダガ/ブリザガ 着弾（カンペ対象外）', [
-      abil(K, 'ケフカ', 'BA9F', 'もりもりサンダガ'), abil(K, 'ケフカ', 'BA98', 'ひろげるブリザガ'),
-    ]);
+    add(waterExp, 'resolve', 'カオス', '⑦ つなみ (ボス下に置く) ← 混沌の水 ' + (waterTruth ? 'ドーナツ' : 'タケノコ'),
+      placements(waterTruth ? 'BB24' : 'BB25', scn.waterPos), true);
+    // マジックアウトの範囲は着弾 (108.8) で出る。位置は単発のときとは別にランダム
+    add(T.manaReleaseHit, 'hit', 'ケフカ', 'マジックアウト 着弾 → 範囲が出る（⑧ 行き先）',
+      lanes(scn.outLineGeo, outLine, CAST.out).concat(cones(scn.outConeGeo, outCone, CAST.out)));
+    add(T.straySpray, 'hit', 'カオス', '混沌の水 発動', []);
+    add(T.thunder2, 'resolve', 'ケフカ', '⑧ マジックアウト ← サンダガ/ブリザガ 着弾', [], true);
 
     ev.sort(function (x, y) { return x.t - y.t; });
     return ev;
@@ -278,9 +334,14 @@
       ['GC3 の傷', scn.wound === 'white' ? '生者の傷（紫）' : '死者の傷（青）'],
       ['GC3 のもう1つ', scn.dof === 'death' ? '死の超越（色そのまま）' : 'アラガンフィールド（逆の色）'],
       ['無の氾濫', fl.label],
-      ['マジックチャージの予兆', '直線=' + tf(scn.lineTruth) + ' / 扇=' + tf(scn.coneTruth)],
-      ['⑦ 直線（サンダガ 77.5s）', scn.lineTruth ? '踏まない' : '踏む'],
-      ['⑦ 扇（ブリザガ 95.5s）', scn.coneTruth ? '踏まない' : '踏む'],
+      ['単発の予兆', '直線=' + tf(scn.lineTruth) + ' / 扇=' + tf(scn.coneTruth)],
+      ['⑧ 直線（サンダガ 77.5s）', scn.lineTruth ? '踏まない' : '踏む'],
+      ['⑧ 扇（ブリザガ 95.5s）', scn.coneTruth ? '踏まない' : '踏む'],
+      ['マジックアウトの予兆', '直線=' + tf(scn.outThunder) + ' / 扇=' + tf(scn.outIce)],
+      ['④ 炎 / ⑦ 水', ((scn.fireFirst ? scn.chaos1 : scn.chaos2) ? 'タケノコ' : 'ドーナツ') + ' / '
+        + ((scn.fireFirst ? scn.chaos2 : scn.chaos1) ? 'ドーナツ' : 'タケノコ')],
+      ['⑧ マジックアウト（113.9s）', '直線 ' + (scn.lineTruth === scn.outThunder ? '踏まない' : '踏む')
+        + ' / 扇 ' + (scn.coneTruth === scn.outIce ? '踏まない' : '踏む')],
       ['なぞなぞの古い予兆', '扇=' + tf(scn.mysteryIce) + ' / 直線=' + tf(scn.mysteryThunder)
         + '（マジックチャージの予兆で上書きされる）'],
     ];

@@ -213,6 +213,7 @@
   // 雷水/加速度: 頭割り(南北) と 1人受け(東西)。マップ基準。
   function paintWindow(ctx, G, wm, sc) {
     arena(ctx, G, wm);
+    paintOverlay(ctx, G, sc);
     if (sc.stack) {
       if (sc.stack.th != null) otherAt(ctx, G, sc.stack.th, 0.40);
       if (sc.stack.dps != null) otherAt(ctx, G, sc.stack.dps, 0.40);
@@ -224,19 +225,34 @@
     if (!sc.known) { unknown(ctx, G); return; }
     // 止/動 は自分マーカーの中に入れる (隅の小さい字だと見落とすので)
     var bomb = sc.bomb == null ? null : (sc.bomb ? '止' : '動');
-    [].concat(sc.myAngles || []).forEach(function (a) {
-      mineAt(ctx, G, a, sc.action === 'stack' ? 0.40 : 0.68, bomb);
+    [].concat(sc.myAngles || []).forEach(function (a, i) {
+      var r0 = sc.action === 'stack' ? 0.40 : 0.68, mv = sc.moveTo && sc.moveTo[i];
+      // ⑤ 単発の扇が出たら、本物が当たらないほうの扇へ少し回り込んだ位置に動かす
+      if (mv && mv.moved && sc.geo) movedMine(ctx, G, pt(G.cx, G.cy, G.R * r0, a), toPx(G, sc.geo, mv.x, mv.y), bomb);
+      else mineAt(ctx, G, a, r0, bomb);
     });
+  }
+  // 範囲に合わせて動かした行き先: 元の位置は小さい輪で残して点線でつなぐ
+  function movedMine(ctx, G, from, to, label) {
+    ctx.beginPath(); ctx.arc(from.x, from.y, G.S * 0.030, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255,231,131,0.55)'; ctx.lineWidth = Math.max(1, G.S * 0.007); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,231,131,0.75)'; ctx.setLineDash([G.S * 0.02, G.S * 0.016]);
+    ctx.beginPath(); ctx.moveTo(from.x, from.y); ctx.lineTo(to.x, to.y); ctx.stroke(); ctx.setLineDash([]);
+    mine(ctx, G, to.x, to.y, label);
   }
 
   // 視線: 持ちは中央。真=全員外を向く / 偽=中央を見る。
   function paintGaze(ctx, G, wm, sc) {
     arena(ctx, G, wm);
+    paintOverlay(ctx, G, sc);
     if (!sc.known) { other(ctx, G, G.cx, G.cy); unknown(ctx, G); return; }
+    // ③ 単発の直線が出たら、中央付近の帯 (本物が当たらないほう) に横スライドして一直線に並ぶ
+    var mv = (sc.moveTo && sc.geo) ? toPx(G, sc.geo, sc.moveTo.x, sc.moveTo.y) : null;
     if (sc.mine) {
       // 自分が視線持ち → 中央が主役
       arrow(ctx, G, 180, false);
-      mine(ctx, G, G.cx, G.cy);
+      if (mv) movedMine(ctx, G, { x: G.cx, y: G.cy }, mv);
+      else mine(ctx, G, G.cx, G.cy);
     } else {
       var r = G.S * 0.055;
       ctx.beginPath(); ctx.arc(G.cx, G.cy, r, 0, Math.PI * 2);
@@ -245,16 +261,32 @@
       labelIn(ctx, '視', G.cx, G.cy, r, COL.boss);
       // 視線は TH が北側 / DPS が南側。ロールが取れていないうちは北に置く。
       var ga = sc.myAngle == null ? 0 : sc.myAngle;
-      arrow(ctx, G, ga, sc.truth);
-      mineAt(ctx, G, ga, 0.68);
+      if (mv) {
+        // 向き (外を向く / 中央を見る) は動いた先の方角で出す
+        var ga2 = Math.atan2(mv.x - G.cx, -(mv.y - G.cy)) * 180 / Math.PI;
+        arrow(ctx, G, ga2, sc.truth);
+        movedMine(ctx, G, pt(G.cx, G.cy, G.R * 0.68, ga), mv);
+      } else {
+        arrow(ctx, G, ga, sc.truth);
+        mineAt(ctx, G, ga, 0.68);
+      }
     }
   }
 
+  // ゲーム座標 (x = 東, y = 南, 中央 100,100) → canvas。アリーナの半径 = geo.arenaRadius
+  function toPx(G, geo, x, y) {
+    var k = G.R / geo.arenaRadius;
+    return { x: G.cx + (x - geo.center.x) * k, y: G.cy + (y - geo.center.y) * k };
+  }
+  function clipArena(ctx, G) { ctx.beginPath(); ctx.arc(G.cx, G.cy, G.R, 0, Math.PI * 2); ctx.clip(); }
+
   // 混沌の炎 / 混沌の水: 立ち位置は常に中央なので、出る範囲の形だけを見せる。
   //   タケノコ = 中央の円範囲 / それ以外 = ドーナツ (中央が安置)
+  //   置いたあと (BB22〜BB25 の詠唱) は実際に置かれた位置で描く (発動まで)。
   function paintChaos(ctx, G, wm, sc) {
     arena(ctx, G, wm);
     if (!sc.known) { unknown(ctx, G); return; }
+    if (sc.placed && sc.placed.length && sc.geo) { paintPlaced(ctx, G, sc.geo, sc.placed); return; }
     var lw = Math.max(1, G.S * 0.008);
     var r = sc.bait ? 0.30 : 0.42;
     if (sc.bait) disc(ctx, G, r, COL.danger);
@@ -263,48 +295,98 @@
     ctx.beginPath(); ctx.arc(G.cx, G.cy, G.R * r, 0, Math.PI * 2); ctx.stroke();
   }
 
-  // マジックアウト: 位置ではなく真偽そのものが答えなので、図にせず 扇/直線 を 踏む/踏まない の 2 行で出す。
-  // ⑦ 単発の 直線(サンダガ) と 扇(ブリザガ)。位置ではなく「踏む/踏まない」が答えなので
-  // 図ではなく 2 行のテキストで出す。上の行が先に来るほう (直線 77.5 → 扇 95.5)。
-  //   lit    = false… まだ順番が来ていない行 → 答えは出したまま薄くする
-  //   lit    = true … 順番が来た / 過ぎた行 → 光ったまま (答えはマジックアウトで使う)
-  //   active = true … いま処理する行 → 枠を強めに出す
-  //   truth  = null … 予兆をまだ拾えていない → 「?」を破線で
-  function paintTruth(ctx, G, sc) {
-    var y0 = G.t1, y1 = G.v0, h = (y1 - y0) / 2;
-    var rows = sc.rows && sc.rows.length ? sc.rows : [{ label: '直線' }, { label: '扇' }];
-    rows.slice(0, 2).forEach(function (row, i) {
-      var cy = y0 + h * (i + 0.5);
-      var x = G.W * 0.05, w = G.W * 0.90, top = cy - h * 0.40, hh = h * 0.80;
-      // 暗いのは「まだ順番が来ていない行」だけ (0.40)。
-      var alpha = (row.lit === false) ? 0.40 : 1;
-      ctx.globalAlpha = alpha;
-      if (row.truth == null) {
-        ctx.fillStyle = 'rgba(120,140,170,0.10)';
-        ctx.fillRect(x, top, w, hh);
-        ctx.strokeStyle = 'rgba(120,140,170,0.40)'; ctx.lineWidth = Math.max(1, G.S * 0.006);
-        ctx.setLineDash([G.S * 0.03, G.S * 0.026]);
-        ctx.strokeRect(x, top, w, hh);
-        ctx.setLineDash([]);
-        txtBox(ctx, row.label, G.W * 0.27, cy, G.W * 0.34, h * 0.48, COL.dim, 800);
-        txtBox(ctx, '?', G.W * 0.68, cy, G.W * 0.44, h * 0.54, COL.dim, 900);
+  function paintPlaced(ctx, G, geo, placed) {
+    var k = G.R / geo.arenaRadius, lw = Math.max(1, G.S * 0.007);
+    ctx.save(); clipArena(ctx, G);
+    placed.forEach(function (w) {
+      var p = toPx(G, geo, w.x, w.y);
+      ctx.beginPath();
+      if (w.type === 'donut') {
+        // ドーナツは外側が危険。重なるほど濃くなり、全部の穴が重なる所だけ明るく残る
+        ctx.arc(G.cx, G.cy, G.R * 1.1, 0, Math.PI * 2);
+        ctx.arc(p.x, p.y, geo.donutInner * k, 0, Math.PI * 2, true);
+        ctx.fillStyle = 'rgba(255,90,90,0.16)'; ctx.fill('evenodd');
+        ctx.beginPath(); ctx.arc(p.x, p.y, geo.donutInner * k, 0, Math.PI * 2);
       } else {
-        var step = !row.truth;             // 嘘 = 予兆の中が安全 = 踏む
-        // 色: 踏む = 赤系 / 踏まない = 緑系。逆にしたいときはこの 2 行の三項を入れ替える。
-        ctx.fillStyle = step ? 'rgba(255,90,90,0.16)' : 'rgba(90,220,160,0.16)';
-        ctx.fillRect(x, top, w, hh);
-        var ink = step ? COL.stop : COL.go;
-        // いま処理する行は枠を強めにして、済んだ行と見分けられるようにする
-        ctx.strokeStyle = ink;
-        ctx.lineWidth = Math.max(1, G.S * (row.active ? 0.011 : 0.006));
-        ctx.globalAlpha = alpha * (row.active ? 0.95 : 0.35);
-        ctx.strokeRect(x, top, w, hh);
-        ctx.globalAlpha = alpha;
-        txtBox(ctx, row.label, G.W * 0.27, cy, G.W * 0.34, h * 0.48, COL.ink, 800);
-        txtBox(ctx, step ? '踏む' : '踏まない', G.W * 0.68, cy, G.W * 0.44, h * 0.58, ink, 900);
+        ctx.arc(p.x, p.y, geo.puddleRadius * k, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255,90,90,0.30)'; ctx.fill();
       }
+      ctx.strokeStyle = 'rgba(255,120,120,0.75)'; ctx.lineWidth = lw; ctx.stroke();
+    });
+    ctx.restore();
+  }
+
+  // 範囲 (直線の帯 / 扇) を描く。★赤 = ケフカの攻撃として見えている位置 (ゲームの予兆と同じ場所)。
+  // 本当なら赤が当たる、嘘なら赤の外が当たる。どこに行くかは黄色の行き先 (⑧) / 下の欄の 踏む/踏まない で出す。
+  // (以前は本物の当たり判定を赤・安置を緑にしていたが、ゲーム画面と見比べにくいのでやめた)
+  function paintZones(ctx, G, geo, zones) {
+    var k = G.R / geo.arenaRadius;
+    function path(z) {
+      var s0 = toPx(G, geo, z.x, z.y), dx = Math.sin(z.h), dy = Math.cos(z.h), len = geo.arenaRadius * 3 * k;
+      ctx.beginPath();
+      if (z.kind === 'lane') {
+        var hw = geo.laneHalfWidth * k, nx = dy, ny = -dx;
+        ctx.moveTo(s0.x + nx * hw, s0.y + ny * hw);
+        ctx.lineTo(s0.x + nx * hw + dx * len, s0.y + ny * hw + dy * len);
+        ctx.lineTo(s0.x - nx * hw + dx * len, s0.y - ny * hw + dy * len);
+        ctx.lineTo(s0.x - nx * hw, s0.y - ny * hw);
+        ctx.closePath();
+      } else {
+        var a = Math.atan2(dy, dx), half = geo.coneHalfAngle * Math.PI / 180;
+        ctx.moveTo(s0.x, s0.y); ctx.arc(s0.x, s0.y, len, a - half, a + half); ctx.closePath();
+      }
+    }
+    ctx.save(); clipArena(ctx, G);
+    zones.forEach(function (z) {
+      if (!z.tell) return;
+      path(z); ctx.fillStyle = 'rgba(255,80,80,0.45)'; ctx.fill();
+      ctx.strokeStyle = 'rgba(255,130,130,0.9)'; ctx.lineWidth = Math.max(1, G.S * 0.006); ctx.stroke();
+    });
+    ctx.restore();
+  }
+  // ③⑤ に単発の範囲を重ねる (位置が確定してから着弾後少しまで)
+  function paintOverlay(ctx, G, sc) {
+    if (sc.overlay && sc.overlay.length && sc.geo) paintZones(ctx, G, sc.geo, sc.overlay);
+  }
+
+  // ⑧ 直線/扇: 常に図 (大きさ・位置は他のパネルと同じ)。一言の代わりに、下に 直線 / 扇 の
+  // 踏む/踏まない の常設欄 (単発の答え)。マジックアウトの答えは図 (範囲と行き先) で見せる。
+  // 図に範囲を描くのはマジックアウトのときだけ (赤 = 見えている予兆 / 黄 = 行き先)。
+  // 行き先は ⑦ の水も避けた所 (水そのものは ⑦ に描く)。
+  var TONE = {
+    step: { ink: '#ff9a6b', bg: 'rgba(255,110,80,0.20)' },
+    avoid: { ink: '#8fe6c2', bg: 'rgba(90,220,160,0.18)' },
+    unknown: { ink: 'rgba(150,170,200,0.6)', bg: 'rgba(120,140,170,0.10)' },
+  };
+  function paintSpellMap(ctx, G, wm, sc) {
+    // 常設欄は一言の帯 (v0..v1) に置く
+    var c0 = G.v0, c1 = G.v1;
+    (sc.chips || []).forEach(function (c, i) {
+      var n = sc.chips.length, gap = G.W * 0.03, x0 = G.W * 0.05;
+      var w = (G.W - x0 * 2 - gap * (n - 1)) / n, x = x0 + i * (w + gap), y = c0 + (c1 - c0) * 0.06, h = (c1 - c0) * 0.86;
+      var tn = TONE[c.tone] || TONE.unknown;
+      ctx.globalAlpha = (c.done && !c.active) ? 0.55 : 1;
+      ctx.fillStyle = tn.bg; ctx.fillRect(x, y, w, h);
+      ctx.strokeStyle = c.active ? COL.self : tn.ink;
+      ctx.lineWidth = Math.max(1, G.S * (c.active ? 0.011 : 0.005)); ctx.strokeRect(x, y, w, h);
+      // 上に小さく項目名、下に大きく答え (横 1 行だと「直線踏まない」が潰れる)
+      txtBox(ctx, c.label, x + w / 2, y + h * 0.27, w * 0.9, h * 0.36, 'rgba(190,205,225,0.85)', 700);
+      txtBox(ctx, c.text, x + w / 2, y + h * 0.68, w * 0.9, h * 0.52, tn.ink, 900);
       ctx.globalAlpha = 1;
     });
+    arena(ctx, G, wm);
+    var geo = sc.geo;
+    if (sc.outText && !(sc.zones || []).length) {
+      // 範囲が出る前のマジックアウトの答え (踏む = 橙 / 踏まない = 緑)
+      txtBox(ctx, sc.outText, G.cx, G.cy, G.R * 1.8, G.R * 0.42, /踏む/.test(sc.outText) ? COL.stop : COL.go, 900);
+    }
+    if (!geo || !(sc.zones || []).length) return;
+    // 行き先 (黄) は本物の当たり判定を避けた所。嘘のときは赤 (見えている予兆) の上になる。
+    paintZones(ctx, G, geo, sc.zones);
+    if (sc.spot) {
+      var sp = toPx(G, geo, sc.spot.x, sc.spot.y);
+      leader(ctx, G, sp.x, sp.y); mine(ctx, G, sp.x, sp.y);
+    }
   }
 
   O.dmp4draw = {
@@ -321,11 +403,13 @@
         case 'window': paintWindow(ctx, G, waymarks, sc); break;
         case 'gaze': paintGaze(ctx, G, waymarks, sc); break;
         case 'chaos': paintChaos(ctx, G, waymarks, sc); break;
-        case 'truth': paintTruth(ctx, G, sc); break;
+        case 'spellmap': paintSpellMap(ctx, G, waymarks, sc); break;
         default: arena(ctx, G, waymarks); break;
       }
 
       // 一言は必ず 1 行 (2 行に折って小さくしない)。帯の高さと幅に自動フィット。
+      // ⑧ (spellmap) は一言の帯に常設欄を描くので一言は出さない。
+      if (sc && sc.kind === 'spellmap') return;
       var band = G.v1 - G.v0;
       txtBox(ctx, label.value == null ? '' : String(label.value),
         W / 2, G.v0 + band * 0.52, W * 0.98, band * 0.95,

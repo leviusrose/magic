@@ -43,6 +43,7 @@
   <div id="out"></div>
 </div>
 
+<script src="../src/geo.js"></script>
 <script src="../src/draw.js"></script>
 <script>
 (function () {
@@ -140,6 +141,18 @@
   cell(s3, { kind: 'gaze', truth: null, mine: false, known: false },
     { title: '③ 視線1', value: '?' }, '未確定', 0.1);
 
+  // ---------- 実ログ (2026-10-02) の座標: 設置位置と範囲 ----------
+  var GEO = window.Overlay.dmp4geo;
+  function z(id, x, y, h) { var sh = GEO.SHAPE[id]; return { id: id, kind: sh.kind, dmg: sh.dmg, tell: sh.tell, x: x, y: y, h: h }; }
+  var FIRE_DONUT = [[100.24, 100.97], [100.18, 100.15], [99.63, 100.24], [100.9, 99.4], [99.2, 99.6], [100.5, 101.6], [99.0, 100.9], [100.1, 98.9]]
+    .map(function (q) { return { type: 'donut', x: q[0], y: q[1] }; });
+  var WATER_PUD = [[99.6, 90.3], [100.9, 107.1], [100.1, 109.3], [100.5, 108.6], [100.7, 110.8], [90.5, 100.6], [99.9, 100.0]]
+    .map(function (q) { return { type: 'puddle', x: q[0], y: q[1] }; });
+  var BOLT = [z('BA9F', 96.45, 75.24, 0.79), z('BA9F', 82.29, 89.37, 0.79)];
+  var CONE = [z('BA9E', 99.99, 99.99, -0.79), z('BA9B', 99.99, 99.99, -2.36), z('BA9E', 99.99, 99.99, 2.36), z('BA9B', 99.99, 99.99, 0.79)];
+  var OUT = [z('BAA1', 96.45, 75.24, 0.79), z('BAA0', 89.37, 82.29, 0.79), z('BAA1', 82.29, 89.37, 0.79), z('BAA0', 75.24, 96.45, 0.79),
+    z('BA9E', 99.99, 99.99, -0.79), z('BA9B', 99.99, 99.99, -2.36), z('BA9E', 99.99, 99.99, 2.36), z('BA9B', 99.99, 99.99, 0.79)];
+
   // ---------- ④ 炎 ----------
   var s4 = section('④ 炎（混沌の炎の着弾）',
     '立ち位置は常に中央なので、出る範囲の形だけを見せる。混沌の炎は「真＝タケノコ（中央の小さい円範囲）」、'
@@ -148,6 +161,8 @@
     { title: '④ 炎', value: 'タケノコ' }, '真 → 中央の小さい円範囲');
   cell(s4, { kind: 'chaos', bait: false, known: true, atCenter: true },
     { title: '④ 炎', value: '中央' }, '偽 → ドーナツ');
+  cell(s4, { kind: 'chaos', bait: false, known: true, atCenter: true, placed: FIRE_DONUT, geo: GEO.GEO },
+    { title: '④ 炎', value: '中央' }, '置いたあと: 実際に置かれた位置で発動まで描く（実ログ）', 0.95);
   cell(s4, { kind: 'chaos', bait: null, known: false, atCenter: true },
     { title: '④ 炎', value: '?' }, 'カオスの真偽がまだ取れていない状態', 0.1);
 
@@ -166,43 +181,53 @@
   cell(s6, { kind: 'gaze', truth: true, mine: true, known: true, myAngle: 180 },
     { title: '⑥ 視線2', value: '見ない', mine: true }, '自分が視線持ち → 中央へ行って外を向く');
 
-  // ---------- ⑦ 直線 / 扇 ----------
-  function row(label, truth, done, lit, active) {
-    return { label: label, truth: truth, done: !!done, lit: !!lit, active: !!active };
-  }
-  var s7 = section('⑦ 直線（もりもりサンダガ 77.5s）/ 扇（ひろげるブリザガ 95.5s）',
-    'マジックチャージのあとにケフカが単発で撃つ 2 発。位置ではなく 踏む/踏まない が答えなので'
-    + '図をやめて 2 行で出す。上が先に来る直線。予兆が本当なら本物なので踏まない、嘘なら踏む。'
-    + '真偽はマジックチャージと同時に飛んでくる予兆で決まるので、その時点で両方とも判定する。'
-    + 'ただし直線と扇は 18 秒の時間差で来るので、最初は直線だけ明るくして扇は薄くする。'
-    + '一度順番が来た行は光ったまま（答えはマジックアウトで使うので済んでも暗くしない）で、'
-    + 'いま処理する行だけ枠を太くする。カード全体が薄くなるのはマジックアウトで使い終わったとき。');
-  cell(s7, { kind: 'truth', known: true,
-    rows: [row('直線', false, false, true, true), row('扇', true)] },
-    { title: '⑦ 直線/扇', value: '直線 踏む' }, 'マジックチャージ直後。扇は順番待ちなので薄い', 0.05);
-  cell(s7, { kind: 'truth', known: true,
-    rows: [row('直線', true, false, true, true), row('扇', false)] },
-    { title: '⑦ 直線/扇', value: '直線 踏まない' }, '直線の予兆が本当 → 避ける', 0.18);
-  cell(s7, { kind: 'truth', known: true,
-    rows: [row('直線', false, true, true), row('扇', true, false, true, true)] },
-    { title: '⑦ 直線/扇', value: '扇 踏まない' }, '直線は済んだが光ったまま。枠が扇に移る', 0.55);
-  cell(s7, { kind: 'truth', known: true,
-    rows: [row('直線', true, true, true), row('扇', false, false, true, true)] },
-    { title: '⑦ 直線/扇', value: '扇 踏む' }, '扇の予兆が嘘 → 扇に入る', 0.60);
-  cell(s7, { kind: 'truth', known: true,
-    rows: [row('直線', true, true, true), row('扇', true, true, true)] },
-    { title: '⑦ 直線/扇', value: '扇 踏まない' }, '両方済み。マジックアウトまで両方見せておく', 0.92);
-  cell(s7, { kind: 'truth', known: false,
-    rows: [row('直線', null, false, true, true), row('扇', null)] },
-    { title: '⑦ 直線/扇', value: '直線 ?' }, '予兆をまだ拾えていない状態', 0.05);
-
-  // ---------- ⑧ つなみ ----------
-  var s8 = section('⑧ つなみ（混沌の水の着弾）',
+  // ---------- ⑦ つなみ ----------
+  var s7 = section('⑦ つなみ（混沌の水の設置 108.0s）',
     '④ と同じ図だが真偽が逆。混沌の水は「真＝ドーナツ」、「偽＝タケノコ（中央の小さい円範囲）」。');
-  cell(s8, { kind: 'chaos', bait: false, known: true, atCenter: true },
-    { title: '⑧ つなみ', value: '中央' }, '真 → ドーナツ');
-  cell(s8, { kind: 'chaos', bait: true, known: true, atCenter: true },
-    { title: '⑧ つなみ', value: 'タケノコ' }, '偽 → 中央の小さい円範囲');
+  cell(s7, { kind: 'chaos', bait: false, known: true, atCenter: true },
+    { title: '⑦ つなみ', value: '中央' }, '真 → ドーナツ');
+  cell(s7, { kind: 'chaos', bait: true, known: true, atCenter: true },
+    { title: '⑦ つなみ', value: 'タケノコ' }, '偽 → 中央の小さい円範囲');
+  cell(s7, { kind: 'chaos', bait: true, known: true, atCenter: true, placed: WATER_PUD, geo: GEO.GEO },
+    { title: '⑦ つなみ', value: '離れる' }, '置いたあと: 実際の位置（実ログ。散って置いた人もいる）。発動まで残す', 0.95);
+
+  // ---------- ⑧ 直線 / 扇 ----------
+  // ★⑧ は常に図。上に 直線 / 扇 の常設欄 (単発の答え)。範囲を描くのはマジックアウトのときだけ。
+  //   単発の直線は ③、単発の扇は ⑤ の図に重ねる (下の ③⑤ の追加セル)。
+  var s8 = section('⑧ 直線 / 扇（単発の答えを常設）＋ マジックアウト（113.9s）',
+    '図は常に出しておき（大きさ・位置は他と同じ）、一言の代わりに下の欄に単発の 直線（77.5s）/ 扇（95.5s）の 踏む/踏まない を常設する（今やるものは黄枠、済んだら薄く）。'
+    + '欄の黄枠はその単発の詠唱〜着弾（③⑤ に範囲を重ねている間）。範囲を図に描くのはマジックアウトのときだけ: 赤 = ケフカの攻撃として見えている位置（ゲームの予兆と同じ）/ 黄 = 行き先（本物の当たりと ⑦ の水を避けた所。嘘のときは赤の上になる。水は ⑦ に描く）。'
+    + 'マジックアウトの予兆が来たら、範囲が出るまで図の中央にチャージ時の答えとの XNOR（両方 踏む / 直線だけ 踏む / 両方 踏まない）を出す。'
+    + '単発の範囲は ③（直線）と ⑤（扇）の図に重ねる。');
+  function chip(label, text, active, done) {
+    return { label: label, text: text, tone: text === '?' ? 'unknown' : (text === '踏む' ? 'step' : 'avoid'), active: !!active, done: !!done };
+  }
+  function s8cell(chips, value, cap, prog, out, outText) {
+    var sc = { kind: 'spellmap', chips: chips, zones: [], geo: GEO.GEO, outText: outText,
+      known: chips.some(function (c) { return c.text !== '?'; }) };
+    if (out) { var r = GEO.solve(OUT, WATER_PUD); sc.zones = OUT; sc.safe = r; sc.spot = r.spot; }
+    cell(s8, sc, { title: '⑧ 直線/扇', value: value }, cap, prog);
+  }
+  s8cell([chip('直線', '?'), chip('扇', '?')], '直線 ?', 'マジックチャージ直後（予兆はまだ）', 0.05);
+  s8cell([chip('直線', '踏まない', true), chip('扇', '?')], '直線 踏まない', '単発の直線の予兆 → 欄に常設（範囲は ③ に描く）', 0.2);
+  s8cell([chip('直線', '踏まない', false, true), chip('扇', '踏む', true)], '扇 踏む', '単発の扇（嘘）→ 欄に常設（範囲は ⑤ に描く）', 0.6);
+  s8cell([chip('直線', '踏まない', false, true), chip('扇', '踏む', false, true)], '両方 踏む', 'マジックアウトの予兆: 範囲が出るまで答えを図の中央に出す', 0.8, false, '両方 踏む');
+  s8cell([chip('直線', '踏まない', false, true), chip('扇', '踏む', false, true)], '両方 踏む', 'マジックアウトの範囲 + 行き先（実ログ）', 0.95, true);
+
+  // ---------- ③⑤ に単発の範囲を重ねる ----------
+  cell(s3, { kind: 'gaze', truth: true, mine: false, known: true, myAngle: 180, overlay: BOLT, geo: GEO.GEO,
+    moveTo: GEO.laneLineup(BOLT, 100, 113.6) },
+    { title: '③ 視線1', value: '見ない' }, '単発の直線（本当）が確定: 中央付近の赤くない帯に横スライドして並ぶ（実ログ）', 0.9);
+  var BOLT_FAKE = [z('BAA0', 96.45, 75.24, 0.79), z('BAA0', 82.29, 89.37, 0.79), z('BAA1', 89.37, 82.29, 0.79), z('BAA1', 75.24, 96.45, 0.79)];
+  cell(s3, { kind: 'gaze', truth: false, mine: false, known: true, myAngle: 0, overlay: BOLT_FAKE, geo: GEO.GEO,
+    moveTo: GEO.laneLineup(BOLT_FAKE, 100, 86.4) },
+    { title: '③ 視線1', value: '見る' }, '単発の直線（嘘）: 中央付近の赤い帯に乗る（TH・北側から）', 0.9);
+  cell(s5, { kind: 'window', stack: POS.stack, spread: POS.spread, action: 'stack', bomb: null, known: true,
+    myAngles: [POS.stack.dps], overlay: CONE, geo: GEO.GEO, moveTo: [GEO.nudgeOut(CONE, 100, 108)] },
+    { title: '⑤ 遅 雷水', value: '頭割り', mine: true }, '単発の扇（嘘）が確定: 南の頭割りから当たらない扇（赤）へ少し回り込む（実ログ）', 0.95);
+  cell(s5, { kind: 'window', stack: POS.stack, spread: POS.spread, action: 'spread', bomb: true, known: true,
+    myAngles: POS.spread.dps, overlay: CONE, geo: GEO.GEO, moveTo: [GEO.nudgeOut(CONE, 113.6, 100)] },
+    { title: '⑤ 遅 雷水', value: '散開 止', mine: true }, '東の 1人受け → 当たらない扇へ少し回り込む', 0.95);
 })();
 </script>
 </body>
