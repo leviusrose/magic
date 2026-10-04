@@ -298,15 +298,23 @@
   function paintPlaced(ctx, G, geo, placed) {
     var k = G.R / geo.arenaRadius, lw = Math.max(1, G.S * 0.007);
     ctx.save(); clipArena(ctx, G);
+    // ドーナツは外側が危険。人数ぶん重ね塗りすると図全体が塗りつぶされるので、塗りは 1 回だけ
+    // (穴は置いた位置の平均に 1 つ) にして、各ドーナツの穴は輪郭だけ描く。
+    var donuts = placed.filter(function (w) { return w.type === 'donut'; });
+    if (donuts.length) {
+      var mx = 0, my = 0;
+      donuts.forEach(function (w) { mx += w.x / donuts.length; my += w.y / donuts.length; });
+      var mp = toPx(G, geo, mx, my);
+      ctx.beginPath();
+      ctx.arc(G.cx, G.cy, G.R * 1.1, 0, Math.PI * 2);
+      ctx.arc(mp.x, mp.y, geo.donutInner * k, 0, Math.PI * 2, true);
+      ctx.fillStyle = 'rgba(255,90,90,0.22)'; ctx.fill('evenodd');
+    }
     placed.forEach(function (w) {
       var p = toPx(G, geo, w.x, w.y);
       ctx.beginPath();
       if (w.type === 'donut') {
-        // ドーナツは外側が危険。重なるほど濃くなり、全部の穴が重なる所だけ明るく残る
-        ctx.arc(G.cx, G.cy, G.R * 1.1, 0, Math.PI * 2);
-        ctx.arc(p.x, p.y, geo.donutInner * k, 0, Math.PI * 2, true);
-        ctx.fillStyle = 'rgba(255,90,90,0.16)'; ctx.fill('evenodd');
-        ctx.beginPath(); ctx.arc(p.x, p.y, geo.donutInner * k, 0, Math.PI * 2);
+        ctx.arc(p.x, p.y, geo.donutInner * k, 0, Math.PI * 2);
       } else {
         ctx.arc(p.x, p.y, geo.puddleRadius * k, 0, Math.PI * 2);
         ctx.fillStyle = 'rgba(255,90,90,0.30)'; ctx.fill();

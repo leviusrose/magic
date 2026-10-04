@@ -213,6 +213,7 @@
   // 雷水/加速度: 頭割り(南北) と 1人受け(東西)。マップ基準。
   function paintWindow(ctx, G, wm, sc) {
     arena(ctx, G, wm);
+    paintChaosShape(ctx, G, sc.geo, sc.chaos);   // dm ④⑤: 炎 (先に処理する) を下に
     paintOverlay(ctx, G, sc);
     if (sc.stack) {
       if (sc.stack.th != null) otherAt(ctx, G, sc.stack.th, 0.40);
@@ -295,8 +296,10 @@
     ctx.beginPath(); ctx.arc(G.cx, G.cy, G.R * r, 0, Math.PI * 2); ctx.stroke();
   }
 
-  function paintPlaced(ctx, G, geo, placed) {
+  // blue = true で青 (今は使っていない。赤で統一 = ユーザ要望)
+  function paintPlaced(ctx, G, geo, placed, blue) {
     var k = G.R / geo.arenaRadius, lw = Math.max(1, G.S * 0.007);
+    var rgb = blue ? '80,150,255' : '255,90,90', edge = blue ? 'rgba(130,190,255,0.85)' : 'rgba(255,120,120,0.75)';
     ctx.save(); clipArena(ctx, G);
     // ドーナツは外側が危険。人数ぶん重ね塗りすると図全体が塗りつぶされるので、塗りは 1 回だけ
     // (穴は置いた位置の平均に 1 つ) にして、各ドーナツの穴は輪郭だけ描く。
@@ -308,7 +311,7 @@
       ctx.beginPath();
       ctx.arc(G.cx, G.cy, G.R * 1.1, 0, Math.PI * 2);
       ctx.arc(mp.x, mp.y, geo.donutInner * k, 0, Math.PI * 2, true);
-      ctx.fillStyle = 'rgba(255,90,90,0.22)'; ctx.fill('evenodd');
+      ctx.fillStyle = 'rgba(' + rgb + ',0.22)'; ctx.fill('evenodd');
     }
     placed.forEach(function (w) {
       var p = toPx(G, geo, w.x, w.y);
@@ -317,9 +320,9 @@
         ctx.arc(p.x, p.y, geo.donutInner * k, 0, Math.PI * 2);
       } else {
         ctx.arc(p.x, p.y, geo.puddleRadius * k, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(255,90,90,0.30)'; ctx.fill();
+        ctx.fillStyle = 'rgba(' + rgb + ',0.30)'; ctx.fill();
       }
-      ctx.strokeStyle = 'rgba(255,120,120,0.75)'; ctx.lineWidth = lw; ctx.stroke();
+      ctx.strokeStyle = edge; ctx.lineWidth = lw; ctx.stroke();
     });
     ctx.restore();
   }
@@ -352,6 +355,52 @@
     });
     ctx.restore();
   }
+  // dm の ④⑤ / ⑦⑧: 炎 / 水 の形を重ねる (赤。dmp4 の ④⑦ と同じ色)。
+  // 置く前はボス下 (中央) に置いた形、置いたら実際の位置。
+  function paintChaosShape(ctx, G, geo, ch) {
+    if (!ch || !geo) return;
+    if (ch.placed && ch.placed.length) { paintPlaced(ctx, G, geo, ch.placed, false); return; }
+    var k = G.R / geo.arenaRadius;
+    ctx.save(); clipArena(ctx, G);
+    ctx.beginPath();
+    if (ch.bait) {
+      ctx.arc(G.cx, G.cy, geo.puddleRadius * k, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255,90,90,0.30)'; ctx.fill();
+    } else {
+      ctx.arc(G.cx, G.cy, G.R * 1.1, 0, Math.PI * 2);
+      ctx.arc(G.cx, G.cy, geo.donutInner * k, 0, Math.PI * 2, true);
+      ctx.fillStyle = 'rgba(255,90,90,0.22)'; ctx.fill('evenodd');
+      ctx.beginPath(); ctx.arc(G.cx, G.cy, geo.donutInner * k, 0, Math.PI * 2);
+    }
+    ctx.strokeStyle = 'rgba(255,120,120,0.75)'; ctx.lineWidth = Math.max(1, G.S * 0.007); ctx.stroke();
+    ctx.restore();
+  }
+
+  // P3 アルテマブラスター: サイコロ 1〜8 の安置 (突入線の中間 = 八角形の頂点)。
+  // 自分の番号は黄色の大きいマーカー + 中央からの点線、他の番号は小さい青丸に番号だけ。
+  // 表現は magic/ultimablaster と同じ (半径 0.76R、突入線 = 八方位の線)。
+  function paintDice(ctx, G, wm, sc) {
+    arena(ctx, G, wm);
+    var spots = sc.spots || [];
+    if (!spots.length) {
+      if (sc.observing) txtBox(ctx, '観察中', G.cx, G.cy, G.R * 1.2, G.R * 0.30, COL.dim, 800);
+      return;
+    }
+    var RS = 0.76;
+    spots.forEach(function (d) {
+      if (d.n === sc.self) return;
+      var p = pt(G.cx, G.cy, G.R * RS, d.angle), r = G.S * 0.045;
+      ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(70,110,190,0.80)'; ctx.fill();
+      ctx.strokeStyle = 'rgba(143,178,255,0.9)'; ctx.lineWidth = Math.max(1, G.S * 0.006); ctx.stroke();
+      labelIn(ctx, String(d.n), p.x, p.y, r, '#eaf1ff');
+    });
+    spots.forEach(function (d) {
+      if (d.n !== sc.self) return;
+      mineAt(ctx, G, d.angle, RS, String(d.n));
+    });
+  }
+
   // ③⑤ に単発の範囲を重ねる (位置が確定してから着弾後少しまで)
   function paintOverlay(ctx, G, sc) {
     if (sc.overlay && sc.overlay.length && sc.geo) paintZones(ctx, G, sc.geo, sc.overlay);
@@ -384,6 +433,7 @@
     });
     arena(ctx, G, wm);
     var geo = sc.geo;
+    paintChaosShape(ctx, G, geo, sc.chaos);      // dm ⑦⑧: つなみ (先に置く) を下に
     if (sc.outText && !(sc.zones || []).length) {
       // 範囲が出る前のマジックアウトの答え (踏む = 橙 / 踏まない = 緑)
       txtBox(ctx, sc.outText, G.cx, G.cy, G.R * 1.8, G.R * 0.42, /踏む/.test(sc.outText) ? COL.stop : COL.go, 900);
@@ -412,6 +462,7 @@
         case 'gaze': paintGaze(ctx, G, waymarks, sc); break;
         case 'chaos': paintChaos(ctx, G, waymarks, sc); break;
         case 'spellmap': paintSpellMap(ctx, G, waymarks, sc); break;
+        case 'dice': paintDice(ctx, G, waymarks, sc); break;
         default: arena(ctx, G, waymarks); break;
       }
 

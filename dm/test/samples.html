@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>P4 カンペ 6枚版 サンプル</title>
+<style>
+  body { background:#0b1220; color:#cfe0f5; font-family:"Noto Sans JP","Yu Gothic UI",sans-serif; margin:16px; }
+  h1 { font-size:18px; margin:0 0 6px; }
+  p.note { font-size:12px; color:#8ea3c0; margin:0 0 12px; max-width:1100px; line-height:1.6; }
+  .row { display:flex; gap:6px; align-items:flex-start; margin-bottom:10px; }
+  .t { width:120px; font-size:12px; color:#a9bad3; line-height:1.5; padding-top:4px; }
+  .t b { font-size:15px; color:#ffe783; display:block; }
+  .cell { position:relative; width:150px; height:197px; border:1px solid rgba(120,140,170,0.25); border-radius:4px; }
+  .cell.ready { border-color:#ffe783; }
+  .cell.done { opacity:0.3; }
+  .cell.dim { opacity:0.5; }
+  .cell canvas { width:100%; height:100%; display:block; }
+</style>
+</head>
+<body>
+<h1>🃏 P3〜P4 カンペ 6枚版（magic/dm）サンプル</h1>
+<p class="note">
+  本体（<code>../src/*.js</code>）に P3 アルテマブラスターと p4-sim の台本（固定シナリオ）を流して、時刻ごとの表示を並べたもの。
+  P3 の間はアルテマブラスターの 1 枚（待機中は半透明・観察中から光る・番号が出たら黄枠）、P4 開始で 6 枚に切り替わる。
+  <b>④⑤</b> = 炎の形（置いたら実際の位置）＋ 次に行く ⑤ の立ち位置（一言は「設置→散開」の形）＋ 単発の扇。
+  <b>⑦⑧</b> = つなみの形 ＋ 下に 直線 / 扇 の欄 ＋ マジックアウトの範囲（赤 = 見えている予兆）と行き先（黄）。
+</p>
+<div id="out"></div>
+
+<script>window.OverlayPluginApi = { callHandler: function (j, cb) { if (cb) cb('null'); } };</script>
+<script src="../src/api.js"></script>
+<script src="../src/geo.js"></script>
+<script src="../src/draw.js"></script>
+<script src="../src/ultima.js"></script>
+<script src="../src/dmp4.js"></script>
+<script src="../../p4-sim/timeline.js"></script>
+<script>
+(function () {
+  var O = window.Overlay, D = O.dmp4, N = window.P4Sim;
+  var NOW = 0;
+  D._config.clock = function () { return NOW; };
+  D._config.sound = false;
+  D.init();
+  O.api.start();
+  D._setRole('dps');
+
+  // 固定シナリオ (毎回同じ図になるように乱数を固定)
+  var seed = 7;
+  Math.random = function () { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
+  var scn = N.randomScenario();
+  scn.role = 'dps'; scn.assign = 'fork-long'; scn.fireFirst = true;
+  scn.chaos1 = false; scn.chaos2 = false;          // 炎 = 嘘 (ドーナツ) / 水 = 嘘 (タケノコ)
+  scn.lineTruth = true; scn.coneTruth = false; scn.outThunder = false; scn.outIce = true;
+  var ev = N.build(scn);
+  var MOMENTS = [
+    [60, 'GC が出そろった'], [74, '単発の直線（③）'], [86, '炎を置いた（④⑤）'],
+    [92, '単発の扇（④⑤）'], [104, 'アウトの予兆のあと（行き先は範囲が出てから）'], [108.5, 'つなみを置いた'], [110, 'マジックアウトの範囲'],
+  ];
+
+  O.api.ready().then(function () {
+    window.dispatchOverlayEvent({ type: 'ChangePrimaryPlayer', charID: parseInt('10AA0001', 16), charName: 'You Player' });
+    var i = 0, out = document.getElementById('out');
+    function snapRow(label, sub) {
+      var row = document.createElement('div'); row.className = 'row';
+      var t = document.createElement('div'); t.className = 't'; t.innerHTML = '<b>' + label + '</b>' + sub;
+      row.appendChild(t);
+      D._panels().forEach(function (P) {
+        var sc = D._scene(P.key), v = D._stepValue(P.key, true);
+        var live = P.key !== 'ultima' || O.dmUltima.live();
+        var c = document.createElement('div');
+        c.className = 'cell' + (sc && sc.known ? ' ready' : '') + (live && v != null ? '' : ' dim');
+        var cv = document.createElement('canvas'); cv.width = 300; cv.height = 394; c.appendChild(cv); row.appendChild(c);
+        O.dmp4draw.paint(cv.getContext('2d'), cv.width, cv.height, D._config.waymarks, sc,
+          { title: P.name, value: v == null ? '—' : v, mine: v != null });
+      });
+      out.appendChild(row);
+    }
+    // ---- P3 アルテマブラスター (突入 西 → 北西 = 時計回り、自分 3 番) ----
+    function charge(id, x, y) {
+      return ['22', 't', id, 'ケフカ', 'BAE3', 'アルテマブラスター', '10AA0001', 'You',
+        '750603', '1000', '1B', 'BAE38000', '0','0','0','0','0','0','0','0','0','0','0','0',
+        '200000', '200000', '10000', '10000', '', '', '90.00', '90.00', '0.00', '0.00',
+        '9415000', '9415000', '10000', '10000', '', '', String(x), String(y), '0.00', '0.00', '000014CF', '0', '8', '00'];
+    }
+    function send(l) { window.dispatchOverlayEvent({ type: 'LogLine', line: l }); }
+    NOW = -300000; snapRow('P3', '待機（半透明）');
+    send(charge('40002CE5', 80, 100)); NOW += 2000; snapRow('P3', '突入を観察中');
+    send(charge('40002CE4', 85.86, 85.86)); NOW += 500;
+    send(['27', 't', '10AA0001', 'You', '0000', '0000', '0152', '10AA0001', '0000', '0000']);
+    snapRow('P3', '行き先が確定（3 番）');
+    NOW = -1000;
+    MOMENTS.forEach(function (m) {
+      while (i < ev.length && ev[i].t <= m[0]) {
+        NOW = ev[i].t * 1000;
+        ev[i].lines.forEach(function (l) { window.dispatchOverlayEvent({ type: 'LogLine', line: l }); });
+        i++;
+      }
+      NOW = m[0] * 1000;
+      var row = document.createElement('div'); row.className = 'row';
+      var t = document.createElement('div'); t.className = 't'; t.innerHTML = '<b>' + m[0] + 's</b>' + m[1];
+      row.appendChild(t);
+      D._panels().forEach(function (P) {
+        var sc = D._scene(P.key), v = D._stepValue(P.key, true);
+        var c = document.createElement('div'); c.className = 'cell' + (sc && sc.known ? ' ready' : '');
+        var cv = document.createElement('canvas'); cv.width = 300; cv.height = 394; c.appendChild(cv); row.appendChild(c);
+        O.dmp4draw.paint(cv.getContext('2d'), cv.width, cv.height, D._config.waymarks, sc,
+          { title: P.name, value: v == null ? '—' : v, mine: P.key === 'fl' || P.key === 'short' || P.key === 'gaze1' || P.key === 'gaze2' });
+      });
+      out.appendChild(row);
+    });
+  });
+})();
+</script>
+</body>
+</html>

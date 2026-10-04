@@ -1,0 +1,1287 @@
+// 絶妖星乱舞(絶ケフカ) P4「ネオエクスデス & カオス」カンペ — magic/dm (dmp4 の 6 枚版・実験)。
+// dmp4 の 8 枚のうち ④⑤ と ⑦⑧ を 1 枚ずつにまとめて 6 枚にしたもの (中身のロジックは dmp4 と同じ)。
+//   ④⑤ 炎 → 遅雷水 : 炎の形 (置いたら実際の位置) + 次に行く ⑤ の立ち位置。下の一言は ⑤。単発の扇もここ
+//   ⑦⑧ つなみ → アウト : つなみの形 (置いたら実際の位置) + マジックアウトの範囲と行き先。下は ⑧ の 直線/扇 の欄
+// 炎/水 (カオス) もケフカの攻撃 (見えている予兆) も赤。④⑤ の一言は「設置→散開」の形、⑦⑧ は図の中央に答えの文字を出さない。
+//
+// ■ P3 → P4 の自動切り替え
+//   P3 の間は「アルテマブラスター」の 1 枚 (src/ultima.js = magic/ultimablaster の判定) を出し、
+//   P4 開始 (おちょくりソウル C2DC) で 6 枚に切り替える。戦闘終了 (ワイプ/撃破)・ゾーン移動で P3 に戻す。
+//   どちらも待機中は半透明、動いている間は光る (P4 のパネルと同じ)。
+//
+// ■ 真偽(本当/嘘)の判定
+//   ボスに付く隠しステータス 808 の count で確定する:
+//     45F=カオス 嘘 / 460=カオス 本当 / 461=ネオエクスデス 嘘 / 462=ネオエクスデス 本当
+//   グランドクロス由来のデバフは「その時点の最新のネオエクスデス側 count」、
+//   ほのお/つなみ由来は「最新のカオス側 count」を採用する(ボス別に持つので順番に依存しない)。
+//
+// ■ 早/遅 はデバフ残り時間で決まる
+//   呪詛の叫声  60s → 視線1 / 69s → 視線2
+//   フォークライトニング・水属性圧縮・加速度爆弾  51s/36s → 早 / 76s/61s → 遅 (しきい値 55s)
+//
+// ■ 立ち位置の基準
+//   早(1セット目)・遅(2セット目) ともに **マップ基準**。TH は 北と西、DPS は 南と東で、
+//   南北が 3人頭割り・東西が 1人受け。ネオエクスデス基準と書いている解説もあるが実際はマップ基準。
+//   全部マップ基準なのでボスの位置は使わない。図は常に北が上・ウェイマークも実配置のまま描く。
+//
+// ■ 注意
+//   ID は cactbot の絶妖星乱舞データ(ゾーン 553)由来。P4 のネットログはまだ手元に無いので、
+//   初回は CONFIG.debug=true で流してコンソールの [dmp4] 行と実際の挙動を突き合わせること。
+
+(function () {
+  'use strict';
+  var O = window.Overlay = window.Overlay || {};
+  console.log('[dmp4] script loaded');
+
+  // ===== 設定 (ここを編集する) =====
+  var CONFIG = {
+    // 立ち位置。マップ基準で、角度は北からの時計回り deg (北 0 / 東 90 / 南 180 / 西 270)。
+    // TH は 北と西、DPS は 南と東。南北が 3人頭割り、東西が 1人受け。早/遅 とも同じ配置。
+    // ネオエクスデス基準と書いている解説もあるが、実際はマップ基準。
+    positions: {
+      stack: { th: 0, dps: 180 },     // 北 / 南 = 3人頭割り
+      spread: { th: 270, dps: 90 },   // 西 / 東 = 1人受け
+    },
+
+    // フィールドマーカー配置。A〜D は十字。数字 1〜4 は標準から左(反時計)に 90° 回転。
+    waymarks: [
+      { label: 'A', angle: 0, color: '#ff5b5b' },
+      { label: '2', angle: 45, color: '#ffd23d' },
+      { label: 'B', angle: 90, color: '#ffd23d' },
+      { label: '3', angle: 135, color: '#4fc3ff' },
+      { label: 'C', angle: 180, color: '#4fc3ff' },
+      { label: '4', angle: 225, color: '#d17bff' },
+      { label: 'D', angle: 270, color: '#d17bff' },
+      { label: '1', angle: 315, color: '#ff5b5b' },
+    ],
+
+    // 無の氾濫で「自分から見て左/右」も出すか。既定はオフ (色だけ出す)。
+    showLaserSide: false,
+
+    // 混沌の炎/水 が「タケノコ」のとき、円を捨てに行く場所。
+    //   'center' = 中央固定 / 'next' = 次の散開集合の方向 / 数値 = 北からの時計回り deg
+    baitAt: 'center',
+
+    // 図の段数。1 = 横 1 行に 8 枚 (横長) / 2 = 4 枚 × 2 段 (小さめの塊)。
+    rows: 1,
+
+    // 'auto' はパーティ情報のジョブから判定。外れるときだけ 'th' / 'dps' に固定する。
+    role: 'auto',
+
+    // 表示文言。使っているマクロの言い回しに合わせて差し替える。
+    labels: {
+      spread: '散開', stack: '頭割り',
+      stop: '止まる', move: '動く',
+      lookAway: '見ない', lookAt: '見る',
+      stopShort: '止', moveShort: '動',   // 図の中と一言に横並びで出す短縮版
+      bait: 'タケノコ', center: '中央',
+      purple: '紫', blue: '青', left: '左', right: '右',
+      // ⑧ 単発の直線(サンダガ)/扇(ブリザガ)。予兆が本当 = 本物なので踏まない
+      lineShape: '直線', coneShape: '扇', avoidTell: '踏まない', stepTell: '踏む',
+      // ⑧ マジックアウトで 2 発同時に来るときの一言 (「両方 踏む」「直線だけ 踏む」)
+      both: '両方', only: 'だけ',
+      away: '離れる',   // ④⑦ タケノコを置いたあと
+      place: '設置',    // ④⑤ の一言: 炎がタケノコ (置いて離れる) のとき「設置→散開」
+    },
+
+    // 自キャラ判定のフォールバック (戦闘中に起動したとき用)。フルネーム or 空。
+    ownNameHint: '',
+
+    // 自分の番の 3 秒前に鳴らす
+    sound: true,
+    soundFile: '',
+    soundVolume: 0.7,
+
+    showStatus: false,  // 左下に自キャラ検出状況
+    debug: false,       // 上部に診断バナー + 未知 ID をコンソールへ
+    demo: false,        // ゲームログ無しで表示確認
+    // 無の氾濫の色を、氾濫自体の真偽 (C392/C393=本当, C3A1/C3A2=嘘) で反転させるか。
+    // ★ 既定 false = 反転させない。実戦の観測に合わせている (computeLaser のコメント参照)。
+    //   cactbot は反転する実装なので、true にすると cactbot と同じ結果になる。
+    //   実戦で合わなくなったらここだけ true にして試せる。
+    floodTruthFlips: false,
+    // 時計の差し替え。ミリ秒を返す関数を入れると now() がそれを使う。
+    // シミュレータが「任意の時点に飛ぶ / 早送りする」ために握る。実戦では null。
+    clock: null,
+  };
+
+  // ===== ID (cactbot dancing_mad 由来) =====
+  var AB = {
+    PHASE: 'C2DC',                              // おちょくりソウル = P4 開始
+    GRAND_CROSS: 'BB14',                        // グランドクロス (ネオエクスデス)
+    INFERNO: 'BB20', TSUNAMI: 'BB21',           // ほのお / つなみ
+    FLOOD: ['C392', 'C393', 'C3A1', 'C3A2'],    // 無の氾濫 (C392/C393=本当, C3A2/C393=青が左)
+    ANTILIGHT: ['C394', 'C395'],                // 白/黒アンチライト → 早デバフ解決の合図
+    UPSURGE: 'C24A',                            // アルテマアップサージ → 遅デバフ解決の合図
+    MANA_CHARGE: 'BAA4',                        // マジックチャージ (この後の単発 2 発の合図)
+    // マジックチャージ後にケフカが単発で撃つ 2 発。詠唱 ID で締め切りが取れる。
+    BOLT: 'C5DE',                               // もりもりサンダガ = 直線
+    CONE: 'BA95',                               // ひろげるブリザガ = 扇
+    MANA_RELEASE: 'BAA5',                       // マジックアウト (⑧ を使い終わる時刻)
+    ENRAGE: 'BABB',                             // 裁きの光 (時間切れ)
+  };
+  var ST = {
+    TELL: '808',                                // 真偽フラグ (count で判定)
+    SHRIEK: '15A7',                             // 呪詛の叫声 (視線)
+    FORK: '15A8',                               // フォークライトニング
+    WATER: '15A9',                              // 水属性圧縮
+    BOMB: '15AA',                               // 加速度爆弾
+    ENTROPY: '15AB',                            // 混沌の炎
+    FLUID: '15AC',                              // 混沌の水
+    CHARGE_ICE: '5CC', CHARGE_THUNDER: '5CD',   // ブリザガ/サンダガ チャージ
+  };
+  var WOUND_WHITE = { '15A5': 1, '1317': 1 };   // 生者の傷 (紫)
+  var WOUND_BLACK = { '15A6': 1, '1318': 1 };   // 死者の傷 (青)
+  var DEATH = { '1558': 1, '566': 1 };          // 死の超越
+  var FIELD = { '1C6': 1 };                     // アラガンフィールド
+
+  var TELL = {
+    '45F': { boss: 'chaos', truth: false },
+    '460': { boss: 'chaos', truth: true },
+    '461': { boss: 'exdeath', truth: false },
+    '462': { boss: 'exdeath', truth: true },
+  };
+  var HEAD = {
+    '02A1': ['fire', false], '02A2': ['fire', true],
+    '02A3': ['ice', false], '02A4': ['ice', true],
+    '02A5': ['thunder', false], '02A6': ['thunder', true],
+  };
+  // ジョブ ID (10進)。ここに無いものは全部 DPS 扱い。
+  var TANK_JOBS = { 1: 1, 3: 1, 19: 1, 21: 1, 32: 1, 37: 1 };          // GLA MRD PLD WAR DRK GNB
+  var HEAL_JOBS = { 6: 1, 24: 1, 28: 1, 33: 1, 40: 1 };                // CNJ WHM SCH AST SGE
+
+  // マジックチャージ (69.2) から、直線 = もりもりサンダガの着弾 (77.5) と
+  // 扇 = ひろげるブリザガの着弾 (95.5) までの間隔 (cactbot dancing_mad: 1164.2 → 1172.5 / 1190.5)。
+  // チャージの時点で「この後 直線 → 扇 が単発で来る」と分かるのでパネルを出しておく。
+  // 残り秒は次に来る直線ぶん、バーは遅い扇ぶんを暫定で使い、
+  // それぞれの詠唱 (C5DE / BA95) が来たら本当の着弾時刻に差し替える。
+  var SPELL_BOLT_MS = 8300;
+  var SPELL_SPAN_MS = 26300;
+  // マジックチャージ (69.2) → マジックアウトで溜めた 2 発が着弾する 113.9 まで。
+  // ⑧ の答えはマジックアウトで使うので、カードが薄くなるのはここ。
+  var SPELL_OUT_MS = 44700;
+  var MANA_HIT_MS = 5100;      // マジックアウト着弾 (108.8) → 扇/直線の着弾 (113.9)
+  var LINGER_MS = 1500;       // ⑧ の範囲図は着弾後もこれだけ残す
+  var WINDOW_SPLIT = 55;     // 早(51/36) と 遅(76/61) の境目(秒)
+  var SHRIEK_SPLIT = 65;     // 視線1(60) と 視線2(69) の境目(秒)
+  var RESET_AFTER_SEC = 120;
+  var PANEL_AR = 0.76;       // 図 1 枚の 幅/高さ (styles.css の aspect-ratio と揃える)
+  var PANEL_GAP = 2;         // 段の間隔 px (styles.css の gap と揃える)
+  // P3 の 1 枚は段数の設定によらず枠の高さいっぱい (2 段にすると半分に縮むので)
+  function panelRows() { return (view === 'p4' && CONFIG.rows === 2) ? 2 : 1; }
+
+  // 表示順 = 解決される順。番号は dmp4 (攻略マクロ) の ①〜⑧ をそのまま使う。
+  //   fl = ④ 炎 + ⑤ 遅雷水 / ws = ⑦ つなみ + ⑧ 直線/扇
+  // P3 の間は 1 枚だけ (アルテマブラスター)
+  var PANELS_P3 = [{ key: 'ultima', name: 'P3 アルテマブラスター' }];
+  var PANELS = [
+    { key: 'laser', name: '① 無の氾濫' },
+    { key: 'short', name: '② 早 雷水' },
+    { key: 'gaze1', name: '③ 視線1' },
+    { key: 'fl', name: '④⑤ 炎→遅雷水' },
+    { key: 'gaze2', name: '⑥ 視線2' },
+    { key: 'ws', name: '⑦⑧ つなみ→アウト' },
+  ];
+  var view = 'p3';     // 'p3' | 'p4'。今どちらのパネルを並べているか
+  function panels() { return view === 'p4' ? PANELS : PANELS_P3; }
+  function UB() { return O.dmUltima; }
+  function setView(v) {
+    if (v === view) return;
+    view = v;
+    console.log('[dm] 表示を切り替え:', v);
+    applyRows();
+    buildPanels();
+    lastGridH = 0;
+    syncSize();
+  }
+
+  // ===== 状態 =====
+  var els = {};
+  var ownId = null, ownName = null, ownRole = null;
+  var partyCache = [];   // PartyChanged の生リスト (自キャラ ID が後から来る場合に備えて持つ)
+  var jobById = {};      // 03 行から拾ったジョブ (id → 10進)。PartyChanged が来ない場合の保険
+  var state = null;
+  var diag = { logLines: 0, booted: false, unknown: {} };
+
+  function freshState() {
+    return {
+      active: false,
+      startAt: 0,
+      lastEventAt: 0,
+      gcCount: 0,
+      gcDebuffSets: 0,      // グランドクロスのデバフが何セット来たか (2 セットで自分の担当が確定)
+      lastGcDebuffAt: null,   // null = まだ 1 セットも来ていない (0 だと now()=0 のとき数え落とす)
+      tell: { exdeath: null, chaos: null },
+      steps: {
+        laser: null,   // { at, color, dir, id }
+        short: null,   // { at, kind, truth, bomb, mine }
+        gaze1: null,   // { at, truth, players[], mine }
+        fire: null,    // { at, truth }
+        long: null,
+        gaze2: null,
+        // ⑧ 単発の 直線(サンダガ) と 扇(ブリザガ)。解決時刻が 18 秒離れているので
+        // 1 枚に 2 行入れて、残り秒は「次に来るほう」、バーは「遅いほう(扇)」で伸ばす。
+        spell: null,   // { from, at, barAt, total, bolt:{at,truth}, cone:{at,truth} }
+        water: null,   // { at, truth }
+      },
+      done: {},
+      wound: null,     // 'white' | 'black'
+      dof: null,       // 'death' | 'field'
+      liveTruth: { fire: null, ice: null, thunder: null },
+      liveAt: { fire: null, ice: null, thunder: null },   // その予兆が来た時刻
+      alerted: {},
+    };
+  }
+
+  function init() {
+    els.root = document.getElementById('dm');
+    els.nowMain = document.getElementById('dm-now-main');
+    els.nowSub = document.getElementById('dm-now-sub');
+    els.grid = document.getElementById('dm-grid');
+    els.status = document.getElementById('dm-status');
+    els.debug = document.getElementById('dm-debug');
+
+    if (CONFIG.debug && els.debug) { els.debug.style.display = 'block'; document.body.classList.add('debug'); }
+
+    state = freshState();
+    applyRows();
+    buildPanels();
+    if (UB()) {
+      UB().setClock(now);
+      UB().setAlert(function () { if (CONFIG.sound) playAlert(); });
+    }
+
+    if (!O.api) { console.error('[dmp4] Overlay.api missing'); return; }
+    O.api.on('ChangePrimaryPlayer', onPrimaryPlayer);
+    O.api.on('PartyChanged', onPartyChanged);
+    O.api.on('LogLine', onLogLine);
+    O.api.ready().then(function () { diag.booted = true; });
+
+    if (CONFIG.demo) startDemo();
+    renderStatus();
+    requestAnimationFrame(loop);
+  }
+
+  // ===== 共通 =====
+  function now() {
+    if (typeof CONFIG.clock === 'function') return CONFIG.clock();
+    return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+  }
+  function normId(s) { return String(s == null ? '' : s).toUpperCase().replace(/^0+(?=.)/, ''); }
+  function mod360(a) { return ((a % 360) + 360) % 360; }
+  function L(k) { return CONFIG.labels[k] || k; }
+
+  function setOwn(id, name) {
+    var nid = normId(id);
+    if (nid && nid !== ownId) ownId = nid;
+    if (name) ownName = name;
+    if (UB() && ownId) UB().setOwn(ownId);
+    resolveRole();        // ID が後から分かることもあるので、そのたびに引き直す
+    renderStatus();
+  }
+  function onPrimaryPlayer(e) {
+    if (e.charID != null) setOwn(Number(e.charID).toString(16), e.charName);
+    else if (e.charName) setOwn(ownId, e.charName);
+  }
+  function onPartyChanged(e) {
+    partyCache = (e && e.party) || [];
+    resolveRole();
+  }
+  function roleOfJob(job) {
+    if (!job) return null;
+    return (TANK_JOBS[job] || HEAL_JOBS[job]) ? 'th' : 'dps';
+  }
+  // 自分のジョブ → TH / DPS。PartyChanged と 03 行の両方から引くので、
+  // どちらが先に来ても・PartyChanged が来なくても決まる。
+  function resolveRole() {
+    if (ownId == null) return;
+    var job = null;
+    for (var i = 0; i < partyCache.length; i++) {
+      var m = partyCache[i] || {};
+      var id = normId(typeof m.id === 'number' ? m.id.toString(16) : m.id);
+      if (id === ownId) { job = Number(m.job); break; }
+    }
+    var src = 'PartyChanged';
+    if (!job) { job = jobById[ownId]; src = '03'; }
+    var r = roleOfJob(job);
+    if (r && r !== ownRole) {
+      ownRole = r;
+      if (CONFIG.debug) console.log('[dmp4] ロール判定 job', job, '→', r, '(' + src + ')');
+      renderStatus();
+    }
+  }
+  function myRole() { return CONFIG.role === 'th' || CONFIG.role === 'dps' ? CONFIG.role : ownRole; }
+
+  function onLogLine(e) {
+    var p = e.line || [];
+    diag.logLines++;
+    if (ownId == null) tryBootstrap(p);
+    if (UB()) UB().onLogLine(p);      // P3 アルテマブラスターの判定にも流す
+    switch (p[0]) {
+      case '02': setOwn(p[2], p[3]); break;
+      case '03': onAddCombatant(p); break;
+      case '01': jobById = {}; reset('ゾーン移動'); backToP3(); break;
+      case '260': if (p[2] === '0') { reset('戦闘終了'); backToP3(); } break;
+      case '20': onCast(p); break;
+      case '263': onCastExtra(p); break;
+      case '21': case '22': onAbility(p); break;
+      case '26': onStatusGain(p); break;
+      case '27': onHeadMarker(p); break;
+    }
+  }
+
+  // 03|t|id|name|job(16進)|level|... — プレイヤーのジョブを拾う。
+  // 実ログで確認済み: 1C=SCH / 13=PLD / 20=DRK / 18=WHM / 16=DRG …
+  function onAddCombatant(p) {
+    var id = normId(p[2]);
+    if (!/^10[0-9A-F]{0,6}$/.test(id)) return;      // プレイヤーだけ
+    var job = parseInt(p[4], 16);
+    if (!job) return;
+    jobById[id] = job;
+    if (id === ownId) resolveRole();
+  }
+
+  function tryBootstrap(p) {
+    var hint = CONFIG.ownNameHint;
+    if (!hint) return;
+    for (var i = 1; i < p.length; i++) {
+      if (p[i] === hint && /^10[0-9A-F]{6}$/i.test(p[i - 1] || '')) { setOwn(p[i - 1], p[i]); return; }
+    }
+  }
+
+  function reset(why) {
+    if (!state.active && state.gcCount === 0) return;
+    state = freshState();
+    console.log('[dmp4] リセット:', why);
+  }
+  function touch() { state.lastEventAt = now(); }
+  function begin() {
+    state = freshState();
+    state.active = true;
+    state.startAt = now();
+    touch();
+    console.log('[dmp4] P4 開始');
+    setView('p4');
+  }
+  // ワイプ/撃破/ゾーン移動 → 次の挑戦は P3 から見る
+  function backToP3() {
+    if (UB()) UB().reset();
+    setView('p3');
+  }
+
+  // ===== 詠唱開始 (type 20) =====
+  function onCast(p) {
+    var id = (p[4] || '').toUpperCase();
+    var castMs = (parseFloat(p[8]) || 0) * 1000;
+
+    if (id === AB.PHASE) { begin(); return; }
+    if (!state.active) return;
+    touch();
+
+    if (id === AB.GRAND_CROSS) { state.gcCount++; return; }
+    if (onProgress(id)) return;
+
+    if (AB.FLOOD.indexOf(id) >= 0) { updateLaser(id, castMs); return; }
+    // 範囲の補助アクター (⑧) / 混沌の炎・水の設置 (④⑦)。位置は 263 で上書きされる
+    if (GEO() && (GEO().SHAPE[id] || GEO().WATER[id])) { onShape(id, p[2], num(p[9]), num(p[10]), num(p[12]), castMs, false); return; }
+    // マジックチャージ後の単発 2 発。真偽は「その時点の予兆」なので、
+    // 詠唱で締め切りを決めて、そのときの予兆を焼き付ける。
+    // ★ なぞなぞマジックでも同じ技が飛ぶので、チャージ済み (s.spell がある) のときだけ拾う。
+    if (id === AB.BOLT) { updateSpell('bolt', castMs, 'thunder'); return; }
+    if (id === AB.CONE) { updateSpell('cone', castMs, 'ice'); return; }
+    if (id === AB.MANA_RELEASE) {
+      // ⑧ の答えはマジックアウトで使い切る。カードが薄くなる時刻をここで確定させる。
+      var sp0 = state.steps.spell;
+      if (sp0) { sp0.outAt = now() + castMs + MANA_HIT_MS; sp0.outCast = true; syncSpell(); }
+      return;
+    }
+    if (CONFIG.debug && (id === AB.INFERNO || id === AB.TSUNAMI || id === AB.MANA_CHARGE)) {
+      console.log('[dmp4] cast', id, p[5]);
+    }
+  }
+
+  // 263|t|srcId|abilId|x|y|z|heading — 20 と同じ瞬間に来る。座標はこちらが正しい
+  // (20 行の座標は古いことがあり、一度 4 本とも中央で来た)。
+  function onCastExtra(p) {
+    if (!state.active) return;
+    var id = (p[3] || '').toUpperCase();
+    if (GEO() && (GEO().SHAPE[id] || GEO().WATER[id])) onShape(id, p[2], num(p[4]), num(p[5]), num(p[7]), null, true);
+  }
+  function num(v) { var n = parseFloat(v); return isFinite(n) ? n : null; }
+  function GEO() { return O.dmp4geo; }
+  // 図の立ち位置の半径 (アリーナ半径に対する比。draw.js の頭割り 0.40 / 1人受け・視線 0.68 と揃える)
+  var PANEL_R = { stack: 0.40, spread: 0.68 };
+  // 北から時計回りの角度 + 半径 (y) → ゲーム座標
+  function polar(angle, r) {
+    var a = angle * Math.PI / 180, C = GEO().GEO.center;
+    return { x: C.x + r * Math.sin(a), y: C.y - r * Math.cos(a) };
+  }
+
+  // 範囲 / 設置の 1 件。precise = 263 (座標が正しい)
+  function onShape(id, src, x, y, h, castMs, precise) {
+    if (x == null || y == null || !GEO()) return;
+    var t = now(), key = String(src || '') + ':' + id, s = state.steps;
+    var wt = GEO().WATER[id];
+    if (wt) {
+      // ④ 混沌の炎 (BB22 = タケノコ / BB23 = ドーナツ) / ⑦ 混沌の水 (BB24 = ドーナツ / BB25 = タケノコ)
+      var step = s[(id === 'BB22' || id === 'BB23') ? 'fire' : 'water'];
+      // ★途中で死んだ人の水/炎はその場ですぐ発動する。切れる予定 (step.at) より前のものは置いたものではない
+      if (!step || t < (step.barAt != null ? step.barAt : step.at) - 1500) return;
+      var pl = step.placed || (step.placed = {});
+      var cur = pl[key];
+      var hitAt = castMs ? t + castMs : (cur ? cur.hitAt : t + 5000);
+      if (!cur || precise) pl[key] = { type: wt, x: x, y: y, hitAt: hitAt };
+      else cur.hitAt = hitAt;
+      // 残り秒は「発動まで」に延ばす。バーは置く時刻 (元の at) で 100% のまま
+      if (step.barAt == null) step.barAt = step.at;
+      step.at = Math.max(step.barAt, hitAt);
+      touch();
+      return;
+    }
+    var sp = s.spell;
+    if (!sp) return;                       // マジックチャージ前 (なぞなぞマジック) の範囲は拾わない
+    var sh = GEO().SHAPE[id];
+    var which = (sp.outCast || sp.out) ? 'out' : (sh.elem === 'thunder' ? 'bolt' : 'cone');
+    var sets = sp.sets || (sp.sets = {});
+    var set = sets[which] || (sets[which] = { shapes: {}, at: null });
+    var old = set.shapes[key];
+    if (!old || precise) {
+      set.shapes[key] = { id: id, elem: sh.elem, kind: sh.kind, dmg: sh.dmg, tell: sh.tell,
+        x: x, y: y, h: h == null ? (old && old.h) : h };
+    }
+    if (castMs) set.at = t + castMs;
+    else if (set.at == null) set.at = t + 5000;
+    // 範囲の ID からも真偽が分かる (予兆より確実)
+    if (which === 'out') (sp.outTruth || (sp.outTruth = {}))[sh.elem] = sh.truth;
+    else if (sp[which] && t < sp[which].at + LINGER_MS) sp[which].truth = sh.truth;
+    touch();
+  }
+  // まだ発動していない設置 (④⑦)
+  function pendingPlaced(step) {
+    if (!step || !step.placed) return [];
+    var t = now();
+    return Object.keys(step.placed).map(function (k) { return step.placed[k]; })
+      .filter(function (w) { return w.hitAt >= t - 500; });
+  }
+
+  // ===== 実行 (type 21/22) =====
+  function onAbility(p) {
+    var id = (p[4] || '').toUpperCase();
+    if (id === AB.PHASE) { if (!state.active) begin(); return; }
+    if (!state.active) return;
+    onProgress(id);
+  }
+
+  // 進行の節目。詠唱(20)でも実行(21/22)でも来るので両方から呼ぶ。
+  function onProgress(id) {
+    if (AB.ANTILIGHT.indexOf(id) >= 0) { state.done.laser = true; touch(); return true; }
+    if (id === AB.UPSURGE) { state.done.short = true; state.done.gaze1 = true; touch(); return true; }
+    if (id === AB.ENRAGE) { touch(); return true; }
+    return false;
+  }
+
+  // ===== ステータス付与 (type 26) =====
+  // 26|t|statusId|name|duration|srcId|srcName|tgtId|tgtName|count|...
+  function onStatusGain(p) {
+    var id = (p[2] || '').toUpperCase();
+    var dur = parseFloat(p[4]) || 0;
+    var tgtId = normId(p[7]);
+    var tgtName = p[8] || '';
+    var count = (p[9] || '').toUpperCase();
+
+    if (id === ST.TELL) {
+      var t = TELL[count];
+      if (!t) return;
+      if (!state.active) begin();     // 保険: P4 開始を取りこぼしても真偽で拾う
+      state.tell[t.boss] = t.truth;
+      touch();
+      if (CONFIG.debug) console.log('[dmp4] 真偽', t.boss, t.truth ? '本当' : '嘘', '(count ' + count + ')');
+      return;
+    }
+    if (!state.active) return;
+
+    var mine = (ownId != null && tgtId === ownId);
+    var at = now() + dur * 1000;
+    var s = state.steps;
+
+    if (id === ST.SHRIEK) {
+      var gk = dur < SHRIEK_SPLIT ? 'gaze1' : 'gaze2';
+      var g = s[gk] || (s[gk] = { at: at, from: now(), truth: state.tell.exdeath, players: [], mine: false });
+      g.at = at; g.total = at - g.from;   // バーは「最初に見えた時から解決まで」で伸ばす
+      if (g.truth == null) g.truth = state.tell.exdeath;
+      if (tgtName && g.players.indexOf(tgtName) < 0) g.players.push(tgtName);
+      if (mine) g.mine = true;
+      touch();
+      return;
+    }
+    if (id === ST.FORK || id === ST.WATER || id === ST.BOMB) {
+      // デバフは GC1 / GC2 の 2 セットに分かれて 15 秒ほど間があく。
+      // 1 セット目だけの段階だと、自分の担当がまだ来ていないのに他人ぶんで枠ができて
+      //「デバフ無し = 頭割り」と誤確定してしまうので、2 セット来るまでは確定させない。
+      if (state.lastGcDebuffAt == null || now() - state.lastGcDebuffAt > 1000) {
+        state.gcDebuffSets++;
+        state.lastGcDebuffAt = now();
+      }
+      var wk = dur >= WINDOW_SPLIT ? 'long' : 'short';
+      var w = s[wk] || (s[wk] = { at: at, from: now(), kind: null, truth: null, bomb: null, mine: false });
+      w.at = at; w.total = at - w.from;   // 後から別のデバフが来てもバーが飛ばないようにする
+      if (mine) {
+        w.mine = true;
+        if (id === ST.BOMB) w.bomb = state.tell.exdeath;
+        else { w.kind = (id === ST.FORK) ? 'fork' : 'water'; w.truth = state.tell.exdeath; }
+      }
+      touch();
+      return;
+    }
+    if (id === ST.ENTROPY) {   // 混沌の炎
+      if (!s.fire || mine) s.fire = { at: at, total: dur * 1000, truth: state.tell.chaos, from: now() };
+      touch(); return;
+    }
+    if (id === ST.FLUID) {     // 混沌の水
+      if (!s.water || mine) s.water = { at: at, total: dur * 1000, truth: state.tell.chaos, from: now() };
+      touch(); return;
+    }
+    if (id === ST.CHARGE_ICE || id === ST.CHARGE_THUNDER) {
+      // 「この後 直線 と 扇 が単発で来る」の合図。ここでパネルを出しておく
+      // (詠唱まで待つと ⑧ だけ数秒あとから現れて発火が遅く見える)。
+      if (!s.spell) {
+        var t0 = now();
+        // ★真偽は「その時点の最新のなぞなぞ予兆」そのものなので、詠唱を待たずに
+        //   チャージの時点で直線も扇も判定できる (扇の詠唱は 22 秒あとなので、
+        //   待つと扇だけ長いあいだ「?」のままになる)。
+        //   締め切りは暫定値で置き、詠唱が来たら本当の着弾時刻に差し替える。
+        //   チャージ後に新しい予兆が来た場合は onHeadMarker が焼き直す。
+        s.spell = { from: t0, at: t0 + SPELL_BOLT_MS, barAt: t0 + SPELL_OUT_MS,
+          total: SPELL_OUT_MS, outAt: t0 + SPELL_OUT_MS,
+          bolt: { at: t0 + SPELL_BOLT_MS, truth: freshLive('thunder'), elem: 'thunder' },
+          cone: { at: t0 + SPELL_SPAN_MS, truth: freshLive('ice'), elem: 'ice' } };
+      }
+      touch(); return;
+    }
+    if (mine) {
+      // GC3: 傷 と 死の超越/アラガンフィールド。両方揃えば必要な色が決まる。
+      if (WOUND_WHITE[id]) { state.wound = 'white'; updateLaser(null, 0, dur * 1000); touch(); return; }
+      if (WOUND_BLACK[id]) { state.wound = 'black'; updateLaser(null, 0, dur * 1000); touch(); return; }
+      if (DEATH[id]) { state.dof = 'death'; updateLaser(null, 0, dur * 1000); touch(); return; }
+      if (FIELD[id]) { state.dof = 'field'; updateLaser(null, 0, dur * 1000); touch(); return; }
+    }
+    if (CONFIG.debug && !diag.unknown[id] && /^1[0-9A-F]{2,3}$/.test(id)) {
+      diag.unknown[id] = p[3];
+      // 対象は「自分/他人」だけ出す (コンソールを貼り付けたときにキャラ名が漏れないように)
+      console.log('[dmp4] 未知ステータス', id, p[3], dur + 's', '→', mine ? '自分' : '他人');
+    }
+  }
+
+  // ===== 頭マーカー (type 27) =====
+  function onHeadMarker(p) {
+    var icon = (p[6] || '').toUpperCase();
+    var h = HEAD[icon];
+    if (!h) return;
+    state.liveTruth[h[0]] = h[1];
+    state.liveAt[h[0]] = now();
+    // まだ着弾していない技のぶんの予兆なら焼き直す。これで
+    //   ・詠唱と予兆がどちらの順で来ても同じ結果になる
+    //   ・チャージ時にシードした真偽が、あとから来た新しい予兆で更新される
+    // (着弾済みの技は at を過ぎているので触らない)。
+    var sp = state.steps.spell;
+    if (sp) {
+      var row = (h[0] === 'thunder') ? sp.bolt : (h[0] === 'ice') ? sp.cone : null;
+      if (row && now() < row.at) row.truth = h[1];
+      // 単発 2 発が両方済んだあとの予兆 = マジックアウトの予兆。
+      // ★実ログではマジックアウトの詠唱 (BAA5) の 0.1 秒「前」に来るので、詠唱を待たずにここで拾う。
+      else if (row && spellOutOpen(sp)) (sp.out || (sp.out = {}))[h[0]] = h[1];
+    }
+    if (CONFIG.debug) console.log('[dmp4] なぞなぞ', h[0], h[1] ? '本当' : '嘘');
+  }
+
+  // ===== 判定ロジック =====
+  // 無の氾濫。行く色は GC3 のデバフだけで確定する。
+  //   死の超越 = 自分の傷の色そのまま / アラガンフィールド = 逆の色
+  //
+  // 出す色は「そのビームに当たりに行く色」(cactbot も Stand in ${color})。避けるのではなく当たる。
+  //   white = ホワイトアンチライト C394 = 紫 / black = ブラックアンチライト C395 = 青。
+  //
+  // ★★ 無の氾濫そのものの真偽 (C392/C393 = 本当、C3A1/C3A2 = 嘘) は色に反映させない。
+  //   cactbot は嘘のとき色を反転する実装:
+  //     keep = (death && floodTrue) || (field && !floodTrue);
+  //     color = keep ? wound : opposite(wound)
+  //   なので嘘のときは cactbot と逆の色になる (16 通り中 8 通りが不一致)。
+  //
+  //   ★ 反転させないほうが実戦と合う。2026-09-15 の実測:
+  //       グランドクロス3 = 真 / 生者の傷(紫) / アラガンフィールド / 氾濫 = 嘘
+  //       → ここの式は「青」を出す。cactbot の式なら反転して「紫」。
+  //       実際に青のビームに当たりに行って正解だった。
+  //     つまり cactbot の keep はこのケースでは合っていない。
+  //     「cactbot と違う」という理由だけで反転を入れ直さないこと (一度やって戻した)。
+  //
+  //   ※ 未検証: グランドクロス3 が「嘘」のとき。嘘だと傷/超越が別 ID で来る
+  //      (1317/1318 = 傷、1558 = 死の超越。真だと 15A5/15A6、566)。cactbot はどちらも
+  //      同じ意味に正規化しているのでこちらも合わせてあるが、実ログでの確認はまだ。
+  //   → 試したいときは CONFIG.floodTruthFlips = true にすれば cactbot と同じ挙動になる。
+  // 詠唱 (11 秒後) で決まるのは左右だけ (C3A2/C393 = 青が自分から見て左)。
+  function opposite(c) { return c === 'white' ? 'black' : 'white'; }
+  function needColor() {
+    if (!state.wound || !state.dof) return null;
+    return state.dof === 'death' ? state.wound : opposite(state.wound);
+  }
+  function computeLaser(abilId) {
+    var base = needColor();
+    if (base == null) return null;
+    var floodTrue = (abilId === 'C392' || abilId === 'C393');
+    // 既定 (floodTruthFlips=false) では反転させない。true にすると cactbot と同じ。
+    var color = (!CONFIG.floodTruthFlips || floodTrue) ? base : opposite(base);
+    var blueLeft = (abilId === 'C3A2' || abilId === 'C393');
+    var dir = (color === 'black')
+      ? (blueLeft ? 'left' : 'right')
+      : (blueLeft ? 'right' : 'left');
+    return { color: color, dir: dir };
+  }
+  // デバフが揃った時点で色を確定。詠唱では左右とタイマーだけ足す。
+  // バーは「最初に見えた時 → 解決」で伸ばす。詠唱で at が動いても total を
+  // 詠唱時間に置き換えてしまうとバーが 0% に巻き戻るので、from を持ち続ける。
+  function updateLaser(abilId, castMs, durMs) {
+    var s = state.steps;
+    var base = needColor();
+    if (base == null) return;
+    var l = s.laser || (s.laser = { from: now(), at: now(), total: 0, color: null, dir: null });
+    if (abilId == null) {
+      l.color = base;
+      l.at = now() + durMs;                       // 傷デバフが切れるまでを仮の締め切りにする
+    } else {
+      var lz = computeLaser(abilId);
+      l.color = lz.color;                         // floodTruthFlips=true のときだけここで変わる
+      l.dir = lz.dir; l.id = abilId;
+      l.at = now() + castMs;                      // 詠唱が来たら本当の着弾時刻に差し替える
+    }
+    l.total = l.at - l.from;
+  }
+
+  // ⑧ マジックチャージ後の単発 2 発。真偽はなぞなぞの予兆そのままで、
+  //   予兆が本当 → 予兆を避ける (踏まない) / 嘘 → 予兆に入る (踏む)。
+  // マジックアウトで溜めた 2 発が同時にもう一度来る。そのときの真偽は
+  //   「チャージ時の予兆 (= 単発の行の答え)」と「アウトの瞬間の予兆」の XNOR
+  //   (cactbot DMU P4 Mana Release と同じ)。アウトの予兆が来たら行の答えをそれで上書きする。
+  // ★実ログ (2026-09-20〜10-02 の 4 回) ではアウトの予兆は毎回チャージの逆で、XNOR は 4 回とも嘘
+  //   (= 踏む) だった。ただし決め打ちせず予兆から計算する。
+  // ★実ログでは単発の予兆は「その単発の詠唱と同じ瞬間」に来る (扇の予兆は直線の 18 秒後)。
+  //   直前 (1.5 秒以内) に来た予兆だけを使う。古い予兆 (なぞなぞマジックのもの) で先に答えを出さない。
+  function freshLive(elem) {
+    var at = state.liveAt[elem];
+    return (at != null && now() - at <= 1500) ? state.liveTruth[elem] : null;
+  }
+  function updateSpell(which, castMs, elem) {
+    var sp = state.steps.spell;
+    if (!sp) return;                       // マジックチャージ前 (なぞなぞの同じ技) は拾わない
+    var fr = freshLive(elem);
+    sp[which] = { at: now() + castMs, truth: fr != null ? fr : (sp[which] ? sp[which].truth : null), elem: elem, cast: true };
+    syncSpell();
+  }
+  // 残り秒は「次に来るほう」、バーは「最初に見えた時 → 遅いほう」で伸ばす。
+  // 2 つを 1 枚に入れているので、この 2 つの締め切りは分けて持つ必要がある。
+  function syncSpell() {
+    var sp = state.steps.spell;
+    if (!sp) return;
+    var t = now(), ends = [];
+    if (sp.bolt) ends.push(sp.bolt.at);
+    if (sp.cone) ends.push(sp.cone.at);
+    if (sp.outAt != null) ends.push(sp.outAt);
+    if (!ends.length) return;
+    var pending = ends.filter(function (x) { return x > t; });
+    sp.at = pending.length ? Math.min.apply(null, pending) : Math.max.apply(null, ends);
+    sp.barAt = Math.max(sp.barAt, Math.max.apply(null, ends));
+    sp.total = sp.barAt - sp.from;
+  }
+  // 図の 1 行ぶん。まだ詠唱が来ていない行は truth=null で「?」になる。
+  function spellRow(r, label) {
+    return { label: label, truth: r ? r.truth : null, done: !!(r && now() > r.at) };
+  }
+  // 単発 2 発が両方済み、かつマジックアウトの着弾前 = ここで来た予兆はアウトのぶん
+  function spellOutOpen(sp) {
+    var t = now();
+    return !!(sp.bolt && sp.cone && t >= sp.bolt.at && t >= sp.cone.at && (sp.outAt == null || t < sp.outAt));
+  }
+  function xnor(a, b) { return (a == null || b == null) ? null : a === b; }
+  function spellRows() {
+    var sp = state.steps.spell;
+    if (sp && (sp.out || sp.outTruth)) {
+      // マジックアウトの予兆が来た → 2 行とも XNOR で上書き。2 発同時に来るので両方「いま」。
+      sp.out = sp.out || {};
+      var done = now() > sp.outAt;
+      return [[sp.bolt, 'thunder', L('lineShape')], [sp.cone, 'ice', L('coneShape')]].map(function (a) {
+        var tr = (sp.outTruth && sp.outTruth[a[1]] != null) ? sp.outTruth[a[1]] : xnor(a[0].truth, sp.out[a[1]]);
+        return { label: a[2], truth: tr, done: done, active: !done, lit: true, out: true };
+      });
+    }
+    var rows = [spellRow(sp && sp.bolt, L('lineShape')), spellRow(sp && sp.cone, L('coneShape'))];
+    // ★直線と扇は 18 秒の時間差で来るので、最初は直線だけ光らせる。
+    //   ただし一度順番が来た行は光ったままにする (答えはマジックアウトで使うので、
+    //   済んだからといって暗くしない)。暗いのは「まだ順番が来ていない行」だけ。
+    //   カード全体が薄くなるのはマジックアウトで使い終わったとき。
+    var cur = -1;
+    for (var i = 0; i < rows.length; i++) if (!rows[i].done) { cur = i; break; }
+    rows.forEach(function (r, i) {
+      r.active = (i === cur);            // いま処理する行 = 枠を強めに出す
+      r.lit = (cur < 0) || (i <= cur);   // 順番が来た / 過ぎた行は光ったまま
+    });
+    return rows;
+  }
+  // 一言に出すのは「次に処理する行」。両方終わっていれば最後の行。
+  function spellNext() {
+    var rows = spellRows();
+    for (var i = 0; i < rows.length; i++) if (!rows[i].done) return rows[i];
+    return rows[rows.length - 1];
+  }
+
+  // 雷水の枠 → 'spread'(1人受け) / 'stack'(3人頭割り)
+  function windowAction(w) {
+    if (!w) return null;
+    if (w.kind === 'fork') return w.truth == null ? null : (w.truth ? 'spread' : 'stack');
+    if (w.kind === 'water') return w.truth == null ? null : (w.truth ? 'stack' : 'spread');
+    return 'stack';                       // 雷も水も無ければ頭割り側
+  }
+
+  // ===== 文言 =====
+  // short = 図の下の一言 (1 語だけ)。長い版は上の「今やること」で使う。
+  function windowText(w, short) {
+    if (!w) return null;
+    var act = windowAction(w);
+    var base = act === 'spread' ? L('spread') : act === 'stack' ? L('stack') : '?';
+    // 図の中の自分マーカーにも同じ字が入る。1 行に収めたいので短縮版を横に並べる。
+    if (w.bomb != null) {
+      base += short
+        ? ' ' + (w.bomb ? L('stopShort') : L('moveShort'))
+        : ' / ' + (w.bomb ? L('stop') : L('move'));
+    }
+    return base;
+  }
+  function gazeText(g, short) {
+    if (!g) return null;
+    if (g.truth == null) return '?';
+    var t = g.truth ? L('lookAway') : L('lookAt');
+    // 自分持ちなら図で中央が主役になっているので、一言は動作だけにする
+    if (g.mine) return short ? t : '中央 → ' + t;
+    if (!short && g.players.length) t += '（' + g.players.map(shortName).join('・') + '）';
+    return t;
+  }
+  function shortName(n) { return (n || '').split(' ')[0]; }
+
+  // 混沌の炎: 本当=自分中心の円 → 捨てに行く / 嘘=ドーナツ → 中央
+  // 混沌の水: 本当=ドーナツ → 中央     / 嘘=円     → 捨てに行く
+  function chaosBait(f, isFire) {
+    if (!f || f.truth == null) return null;
+    return isFire ? f.truth : !f.truth;
+  }
+  function chaosText(f, isFire) {
+    if (!f) return null;
+    var b = chaosBait(f, isFire);
+    if (b && pendingPlaced(f).length) return L('away');    // 置いた → 発動までに離れる
+    return b == null ? '?' : (b ? L('bait') : L('center'));
+  }
+  function laserText(z) {
+    if (!z) return null;
+    if (!z.color) return '?';
+    var t = (z.color === 'white' ? L('purple') : L('blue'));
+    if (CONFIG.showLaserSide && z.dir) t += ' ' + (z.dir === 'left' ? L('left') : L('right'));
+    return t;
+  }
+  function spellText() {
+    if (!state.steps.spell) return null;
+    var rows = spellRows();
+    if (rows[0].out && rows[0].truth != null && rows[1].truth != null) {
+      // マジックアウト: 2 発同時なので 1 行にまとめる (両方 踏む / 直線だけ 踏む / 両方 踏まない)
+      var st = rows.filter(function (r) { return !r.truth; });
+      if (st.length === 1) return st[0].label + L('only') + ' ' + L('stepTell');
+      return L('both') + ' ' + (st.length ? L('stepTell') : L('avoidTell'));
+    }
+    var r = spellNext();
+    // 「?」だけだとパネルが初期化されたように見えるので、どちらを待っているのかを出す
+    if (r.truth == null) return r.label + ' ?';
+    // 予兆が本当 = 本物なので踏まない / 嘘 = 見せかけなので踏む
+    return r.label + ' ' + (r.truth ? L('avoidTell') : L('stepTell'));
+  }
+
+  function stepValue(key, short) {
+    var s = state.steps;
+    switch (key) {
+      case 'laser': return laserText(s.laser);
+      case 'short': return windowText(s.short, short);
+      case 'long': return windowText(s.long, short);
+      case 'gaze1': return gazeText(s.gaze1, short);
+      case 'gaze2': return gazeText(s.gaze2, short);
+      case 'fire': return chaosText(s.fire, true);
+      case 'water': return chaosText(s.water, false);
+      case 'spell': return spellText();
+      case 'ultima': return UB() ? UB().text(CONFIG.waymarks) : null;
+      // ④⑤: 炎が済むまでは「設置→散開 止」(ドーナツなら「中央→…」)、済んだら ⑤ だけ
+      case 'fl': {
+        var nx = s.long ? windowText(s.long, short) : null;
+        var fb5 = chaosBait(s.fire, true);
+        if (s.fire && fb5 != null && now() < s.fire.at + 500) return (fb5 ? L('place') : L('center')) + '→' + (nx || '?');
+        return nx || chaosText(s.fire, true);
+      }
+      // ⑦⑧: 下は 直線/扇 の欄なので図には出ない。上の「今やること」用に、水が済むまでは水、あとは ⑧
+      case 'ws': return (s.water && now() < s.water.at + 500) ? chaosText(s.water, false) : spellText();
+    }
+    return null;
+  }
+  // まとめた 2 枚 (fl / ws) の締め切り。{ at: 残り秒の対象, barAt: バーの締め切り, total: バーの長さ }
+  //   fl: 炎 (置く → 発動) が済むまでは炎、そのあとは ⑤
+  //   ws: 単発の直線 / 扇 / つなみ / マジックアウト のうち次に来るもの。バーはマジックアウトまで通し
+  function pendingAt(list) {
+    var t = now(), xs = list.filter(function (x) { return x != null; });
+    if (!xs.length) return null;
+    var fut = xs.filter(function (x) { return x > t; });
+    return fut.length ? Math.min.apply(null, fut) : Math.max.apply(null, xs);
+  }
+  function compositeStep(key) {
+    var s = state.steps, t = now();
+    if (key === 'fl') {
+      var f = s.fire, l = s.long;
+      if (!f && !l) return null;
+      var fireOn = f && t < f.at + 500;
+      return { at: fireOn || !l ? f.at : l.at, barAt: l ? l.at : f.at, total: l ? l.total : f.total };
+    }
+    if (key === 'ws') {
+      var w = s.water, sp = s.spell;
+      if (!w && !sp) return null;
+      var at = pendingAt([w && w.at, sp && sp.bolt && sp.bolt.at, sp && sp.cone && sp.cone.at, sp && sp.outAt]);
+      var from = w && w.from != null ? w.from : (sp ? sp.from : t);
+      var barAt = sp && sp.outAt != null ? sp.outAt : (w ? (w.barAt != null ? w.barAt : w.at) : at);
+      return { at: at, barAt: barAt, total: Math.max(1, barAt - from) };
+    }
+    return null;
+  }
+  function stepOf(key) { return compositeStep(key) || state.steps[key]; }
+  function stepAt(key) { var v = stepOf(key); return v ? v.at : null; }
+  function stepIsMine(key) {
+    var s = state.steps;
+    if (key === 'fl') return !!(s.long && s.long.mine);
+    if (key === 'ultima') return !!(UB() && UB()._state().selfNumber != null);
+    if (key === 'short' || key === 'long' || key === 'gaze1' || key === 'gaze2') return !!(s[key] && s[key].mine);
+    if (key === 'laser') return !!(s.laser && s.laser.color);
+    return false;
+  }
+
+  // ===== 図に渡すシーン =====
+  function windowScene(key) {
+    var w = state.steps[key];
+    var P = CONFIG.positions;
+    function absAll(a) { return [].concat(a == null ? [] : a).map(mod360); }
+
+    var sc = {
+      kind: 'window',
+      stack: { th: mod360(P.stack.th), dps: mod360(P.stack.dps) },
+      spread: { th: absAll(P.spread.th), dps: absAll(P.spread.dps) },
+      action: null, bomb: w ? w.bomb : null, myAngles: [], known: false,
+    };
+    if (state.gcDebuffSets < 2) return sc;    // 2 セット揃うまでは「?」のまま
+    var act = windowAction(w);
+    if (!act) return sc;
+    sc.action = act;
+    sc.known = true;
+    var role = myRole();
+    if (role) sc.myAngles = act === 'stack' ? [sc.stack[role]] : sc.spread[role];
+    return sc;
+  }
+  // タケノコの捨て場所。既定は中央固定。
+  function baitTarget() {
+    var b = CONFIG.baitAt;
+    if (b === 'center' || b == null) return { atCenter: true, angle: null };
+    if (b === 'next') {
+      var sc = windowScene('long');
+      return { atCenter: false, angle: (sc.myAngles && sc.myAngles.length) ? sc.myAngles[0] : null };
+    }
+    return { atCenter: false, angle: mod360(Number(b) || 0) };
+  }
+
+  function scene(key) {
+    var s = state.steps;
+    switch (key) {
+      case 'laser': {
+        var z = s.laser;
+        return {
+          kind: 'laser',
+          color: z && z.color, dir: z && z.dir,
+          showSide: !!CONFIG.showLaserSide,
+          known: !!(z && z.color),
+        };
+      }
+      case 'short': return windowScene(key);
+      case 'long': {
+        // 単発の扇 (95.5) は ⑤ (94.4) の図に重ねる
+        var lw = windowScene(key), oc = zoneOverlay('cone');
+        if (oc) {
+          lw.overlay = oc; lw.geo = GEO().GEO;
+          // 立ち位置 (南北/東西) は扇の境目の上なので、本物が当たらないほうの扇へ少し回り込む
+          if (lw.known) {
+            var rr = (lw.action === 'stack' ? PANEL_R.stack : PANEL_R.spread) * GEO().GEO.arenaRadius;
+            lw.moveTo = (lw.myAngles || []).map(function (a) {
+              var b0 = polar(a, rr);
+              return GEO().nudgeOut(oc, b0.x, b0.y);
+            });
+          }
+          lw.sig = JSON.stringify(oc) + JSON.stringify(lw.moveTo || null);
+        }
+        return lw;
+      }
+      case 'gaze1': case 'gaze2': {
+        var g = s[key];
+        // ★視線は TH が北側 / DPS が南側 で処理する (南北 = 頭割り側と同じ)。
+        //   どっちに行くかはルールで決まっているので文字には出さず、図の自分の位置だけに出す。
+        var gr = myRole(), gp = CONFIG.positions.stack;
+        // 単発の直線 (77.5) は ③ (78.5) の図に重ねる
+        var ob = key === 'gaze1' ? zoneOverlay('bolt') : null;
+        // 範囲が出たら、中央付近の帯のうち本物が当たらないほうに一直線に並ぶ (今いる位置から横にスライド)
+        var mv = null;
+        if (ob && g && g.truth != null) {
+          var gb = (g.mine) ? { x: GEO().GEO.center.x, y: GEO().GEO.center.y }
+            : polar((gr && gp[gr] != null) ? mod360(gp[gr]) : 0, PANEL_R.spread * GEO().GEO.arenaRadius);
+          mv = GEO().laneLineup(ob, gb.x, gb.y);
+        }
+        return { kind: 'gaze', truth: g && g.truth, mine: !!(g && g.mine),
+          // ロールがまだ取れていなければ null (draw.js 側で北に置く)
+          myAngle: (gr && gp[gr] != null) ? mod360(gp[gr]) : null,
+          known: !!(g && g.truth != null),
+          overlay: ob, geo: ob ? GEO().GEO : null, moveTo: mv,
+          sig: ob ? JSON.stringify(ob) + JSON.stringify(mv) : '' };
+      }
+      case 'fire': case 'water': {
+        var b = chaosBait(s[key], key === 'fire');
+        var bt = baitTarget();
+        // 置いたあとは実際の位置で描く (発動まで)
+        var placed = pendingPlaced(s[key]).map(function (w) { return { type: w.type, x: w.x, y: w.y }; });
+        return { kind: 'chaos', bait: b, known: b != null, atCenter: bt.atCenter, myAngle: bt.angle,
+          placed: placed, geo: GEO() && GEO().GEO, sig: JSON.stringify(placed) };
+      }
+      case 'ultima': {
+        var ub = UB() ? UB().scene() : { kind: 'dice', spots: [], known: false };
+        ub.sig = JSON.stringify([ub.spots, ub.self, ub.observing]);
+        return ub;
+      }
+      case 'fl': {
+        // ④⑤: ⑤ の立ち位置 (+ 単発の扇と回り込み) の図に、炎の形を重ねる (発動まで)
+        var sc45 = scene('long');
+        var f45 = s.fire;
+        if (f45 && now() < f45.at + 500) {
+          var fb = chaosBait(f45, true);
+          if (fb != null) {
+            sc45.chaos = { bait: fb, placed: pendingPlaced(f45).map(function (w) { return { type: w.type, x: w.x, y: w.y }; }) };
+            sc45.geo = sc45.geo || (GEO() && GEO().GEO);
+            sc45.known = true;
+          }
+        }
+        sc45.sig = (sc45.sig || '') + JSON.stringify(sc45.chaos || null);
+        return sc45;
+      }
+      case 'ws': {
+        // ⑦⑧: ⑧ の図 (下の欄・マジックアウトの範囲と行き先) に、つなみの形を重ねる (発動まで)
+        var sc78 = scene('spell');
+        var w78 = s.water;
+        if (w78 && now() < w78.at + 500) {
+          var wb78 = chaosBait(w78, false);
+          if (wb78 != null) {
+            sc78.chaos = { bait: wb78, placed: pendingPlaced(w78).map(function (w) { return { type: w.type, x: w.x, y: w.y }; }) };
+            sc78.known = true;
+          }
+        }
+        sc78.geo = sc78.geo || (GEO() && GEO().GEO);
+        // 中央の「両方 踏む」等は出さない (行き先が出たらそれを見て動くので。ユーザ要望)
+        sc78.outText = null;
+        sc78.sig = (sc78.sig || '') + JSON.stringify(sc78.chaos || null);
+        return sc78;
+      }
+      case 'spell': {
+        // ★⑧ は常に図 (文字の 2 行 ⇔ 図 の切り替えはちらつくのでやめた)。
+        //   上の常設欄 = 単発の 直線 / 扇 の答え。図に範囲を描くのはマジックアウトのときだけ。
+        if (!s.spell) return { kind: 'spellmap', rows: [], chips: spellChips(), zones: [], known: false,
+          geo: GEO() && GEO().GEO };
+        var rows = spellRows();
+        var map = spellMap();
+        // 枠の黄色 (確定) は 1 行でも真偽が分かったら点けたままにする。
+        // ★「次に処理する行が分かっているか」にすると、直線 (77.5) が済んでから
+        //   ブリザガの詠唱 (91.5) が来るまでの 14 秒だけ消えて
+        //   「光って消えてまた光る」になる。他のパネルは点いたままなので揃える。
+        var chips = spellChips();
+        return { kind: 'spellmap', which: map ? 'out' : null, rows: rows, chips: chips,
+          zones: map ? map.zones : [], safe: map ? map.safe : null, spot: map ? map.spot : null,
+          geo: GEO() && GEO().GEO,
+          known: rows.some(function (r) { return r.truth != null; }),
+          // マジックアウトの予兆〜範囲が出るまでは、答えを図の中央に文字で出す (⑧ には一言が無いので)
+          outText: (!map && rows[0] && rows[0].out) ? spellText() : null,
+          sig: (map ? map.sig : '') + JSON.stringify(chips) + ((!map && rows[0] && rows[0].out) ? spellText() : '') };
+      }
+    }
+    return null;
+  }
+  // ⑧ は常に図。範囲を描くのはマジックアウトのときだけ (ユーザ要望: 切り替わってちらつくのを避ける)。
+  // 単発の直線は ③、単発の扇は ⑤ の図に重ねる (zoneOverlay)。
+  var mapCache = { sig: null, res: null };
+  function setZones(set) {
+    return Object.keys(set.shapes).map(function (k) { return set.shapes[k]; })
+      .filter(function (z) { return z.h != null; });
+  }
+  // ③⑤ に重ねる単発の範囲 (位置が確定 = 補助アクターの詠唱から、着弾後少しまで)
+  function zoneOverlay(which) {
+    var sp = state.steps.spell, set = sp && sp.sets && sp.sets[which];
+    if (!set || !GEO() || now() >= set.at + LINGER_MS) return null;
+    return setZones(set);
+  }
+  function spellMap() {
+    var sp = state.steps.spell, set = sp && sp.sets && sp.sets.out;
+    if (!set || !GEO()) return null;
+    var zones = setZones(set);
+    // 行き先は ⑦ の水も避ける (水そのものは ⑦ に描く)。置く前はボス下 (中央) に置く前提。
+    // ★水が発動したあと (113.0) も計算に残す。外すと行き先が中央寄りに動き直して見える。
+    var ws0 = state.steps.water;
+    var water = (ws0 && ws0.placed ? Object.keys(ws0.placed).map(function (k) { return ws0.placed[k]; }) : [])
+      .map(function (w) { return { type: w.type, x: w.x, y: w.y }; });
+    var wb = chaosBait(state.steps.water, false), ws = state.steps.water;
+    // 置く前だけボス下に仮置き (置いて発動し終わったあとは水なし)
+    if (!water.length && wb != null && !(ws && ws.placed)) water = [{ type: wb ? 'puddle' : 'donut', x: 100, y: 100 }];
+    var sig = 'out' + JSON.stringify(zones) + JSON.stringify(water);
+    if (mapCache.sig !== sig) { mapCache.sig = sig; mapCache.res = GEO().solve(zones, water); }
+    var res = mapCache.res;
+    return { zones: zones, safe: res, spot: res.spot, sig: sig };
+  }
+  // ⑧ 上の常設欄: チャージ時 (単発) の 直線 / 扇 の 踏む/踏まない
+  function spellChips() {
+    var sp = state.steps.spell, t = now(), rows = sp ? spellRows() : [], out = rows[0] && rows[0].out;
+    return [[sp && sp.bolt, L('lineShape'), 0], [sp && sp.cone, L('coneShape'), 1]].map(function (a) {
+      var r = a[0], v = r ? r.truth : null;
+      return { label: a[1], text: v == null ? '?' : (v ? L('avoidTell') : L('stepTell')),
+        tone: v == null ? 'unknown' : (v ? 'avoid' : 'step'),
+        // 黄枠は「その単発の詠唱〜着弾」だけ (③⑤ に範囲を重ねている間と同じ)
+        active: !out && !!(r && r.cast && t < r.at + LINGER_MS), done: !!(r && t >= r.at + LINGER_MS) };
+    });
+  }
+
+  function sceneSig(sc) {
+    if (!sc) return '-';
+    return [sc.kind, sc.known, sc.action, sc.bomb, sc.truth, sc.mine, sc.bait, sc.color, sc.dir,
+      sc.showSide, sc.atCenter, sc.sig || '',
+      (sc.rows || []).map(function (r) { return r.label + r.truth + r.done + r.active + r.lit; }).join(','),
+      (sc.myAngles || []).map(Math.round).join(','), sc.myAngle == null ? '' : Math.round(sc.myAngle)].join('|');
+  }
+
+  function isLive() { return state.active && (now() - state.lastEventAt) < RESET_AFTER_SEC * 1000; }
+
+  // ===== 描画 =====
+  function buildPanels() {
+    if (!els.grid) return;
+    els.grid.innerHTML = '';
+    els.panels = {};
+    panels().forEach(function (P) {
+      // 見出しと一言は canvas に焼く (パネル幅を高さだけで決めたいので DOM に文字を持たせない)。
+      // 残り秒だけは 0.1 秒ごとに変わるので DOM で重ねる。
+      var root = document.createElement('div'); root.className = 'dm-panel';
+      var cv = document.createElement('canvas'); cv.className = 'p-canvas';
+      cv.width = 200; cv.height = Math.round(200 / PANEL_AR);
+      var time = document.createElement('div'); time.className = 'p-time';
+      // 解決までの進み具合 = このパネルが消えて左に詰まるまでの残り
+      var bar = document.createElement('div'); bar.className = 'p-bar';
+      var fill = document.createElement('div'); fill.className = 'p-bar-fill';
+      bar.appendChild(fill);
+      root.appendChild(cv); root.appendChild(time); root.appendChild(bar);
+      els.grid.appendChild(root);
+      els.panels[P.key] = {
+        root: root, canvas: cv, time: time, fill: fill, name: P.name,
+        ctx: (typeof cv.getContext === 'function') ? cv.getContext('2d') : null,
+        sig: null,
+      };
+    });
+  }
+
+  // 段数を DOM に反映する (styles.css の #dm-grid.rows-1 / .rows-2)
+  function applyRows() {
+    if (els.grid) els.grid.className = 'rows-' + panelRows();
+  }
+
+  // 高さに合わせてパネル幅とバッキングストアを決める。横は溢れたら切れる。
+  var lastGridH = 0;
+  function syncSize() {
+    if (!els.grid) return;
+    var h = els.grid.clientHeight || 0;
+    if (!h || h === lastGridH) return;
+    lastGridH = h;
+    var rows = panelRows();
+    var rowH = (h - (rows - 1) * PANEL_GAP) / rows;
+    var w = Math.round(rowH * PANEL_AR);
+    var bw = Math.max(160, Math.min(360, w));
+    var bh = Math.round(bw / PANEL_AR);
+    panels().forEach(function (P) {
+      var pan = els.panels && els.panels[P.key];
+      if (!pan) return;
+      pan.root.style.width = w + 'px';
+      if (pan.canvas.width !== bw) { pan.canvas.width = bw; pan.canvas.height = bh; }
+      pan.sig = null;   // canvas をリサイズすると内容が消えるので描き直す
+    });
+  }
+
+  function loop() { render(); requestAnimationFrame(loop); }
+
+  function render() {
+    var t = now();
+    syncSize();
+
+    // ⑧ は 直線 → 扇 の 2 段構えなので、残り秒の対象を毎フレーム選び直す
+    syncSpell();
+
+    var live = isLive();
+    var cur = null;
+
+    panels().forEach(function (P) {
+      var pan = els.panels && els.panels[P.key];
+      if (!pan) return;
+      var val = stepValue(P.key);
+      var shortVal = stepValue(P.key, true);
+      var mine = stepIsMine(P.key);
+      var at = stepAt(P.key);
+      var left = at != null ? (at - t) / 1000 : null;
+      var done = !!state.done[P.key] || (left != null && left < -3) || (P.key === 'ultima' && UB() && UB().done());
+
+      pan.time.textContent = (left != null && left > -3 && !done) ? left.toFixed(1) : '';
+
+      // プログレスバー: 100% になった時点でこのパネルが消えて左に詰まる
+      var step = stepOf(P.key);
+      var total = (step && step.total) ? step.total / 1000 : null;
+      // ⑧ は「残り秒の対象 (次に来るほう)」と「バーの締め切り (遅いほう)」が違うので、
+      // barAt があるパネルはそちらでバーを計算する。
+      var barLeft = (step && step.barAt != null) ? (step.barAt - t) / 1000 : left;
+      var prog = (barLeft != null && total) ? (1 - barLeft / total) : 0;
+      pan.fill.style.width = Math.round(Math.max(0, Math.min(1, prog)) * 100) + '%';
+
+      var sc = scene(P.key);
+      var cls = 'dm-panel';
+      if (val != null) cls += ' has';
+      if (sc && sc.known) cls += ' ready';   // 答えが出た = カードの輪郭を黄色にする
+      if (mine) cls += ' mine';
+      if (done) cls += ' done';
+      else if (left != null && !cur) { cur = { val: val, left: left, name: P.name }; cls += ' cur'; }
+      if (left != null && left <= 5 && left > -1 && !done) cls += ' soon';
+      pan.root.className = cls;
+
+      // 図はシーンが変わったときだけ描き直す (canvas 8 枚を毎フレームは重い)
+      var sig = sceneSig(sc) + '|' + shortVal + '|' + mine;
+      if (pan.ctx && sig !== pan.sig) {
+        pan.sig = sig;
+        O.dmp4draw.paint(pan.ctx, pan.canvas.width, pan.canvas.height, CONFIG.waymarks, sc,
+          { title: pan.name, value: shortVal == null ? '—' : shortVal, mine: mine });
+      }
+
+      // まとめたパネルは締め切りが途中で変わる (炎 → ⑤) ので、締め切りごとに 1 回鳴らす
+      var akey = P.key + ':' + (at == null ? '' : Math.round(at / 1000));
+      if (CONFIG.sound && !state.alerted[akey] && mine && left != null && left <= 3 && left > 0) {
+        state.alerted[akey] = true;
+        playAlert();
+      }
+    });
+
+    if (!els.nowMain) return;
+    if (view === 'p3') {
+      var ut = UB() ? UB().text(CONFIG.waymarks) : null, ulive = UB() && UB().live();
+      els.nowMain.textContent = ulive ? 'P3 アルテマブラスター' + (ut ? '：' + ut : '') : 'P3 待機';
+      els.nowMain.className = ulive ? (ut ? 'go' : 'wait') : 'idle';
+      els.nowSub.textContent = '';
+    } else if (!live) {
+      els.nowMain.textContent = 'P4 待機';
+      els.nowMain.className = 'idle';
+      els.nowSub.textContent = '';
+    } else if (cur && cur.val != null) {
+      els.nowMain.textContent = cur.name + '：' + cur.val;
+      els.nowMain.className = 'go';
+      els.nowSub.textContent = (cur.left > 0 ? cur.left.toFixed(1) : '0.0');
+    } else {
+      els.nowMain.textContent = 'デバフ確認中…';
+      els.nowMain.className = 'wait';
+      els.nowSub.textContent = 'グランドクロス ' + Math.min(state.gcCount, 3) + '/3';
+    }
+    renderDebug();
+  }
+
+  // ===== 通知音 (ultimablaster と同じ) =====
+  var actx = null, audioEl = null, audioPath = null;
+  function playAlert() {
+    if (CONFIG.soundFile) {
+      try {
+        if (!audioEl || audioPath !== CONFIG.soundFile) { audioEl = new Audio(CONFIG.soundFile); audioPath = CONFIG.soundFile; }
+        audioEl.volume = clamp01(CONFIG.soundVolume);
+        try { audioEl.currentTime = 0; } catch (_) {}
+        var pr = audioEl.play(); if (pr && pr.catch) pr.catch(beep);
+        return;
+      } catch (e) {}
+    }
+    beep();
+  }
+  function beep() {
+    try {
+      var Ctx = window.AudioContext || window.webkitAudioContext; if (!Ctx) return;
+      actx = actx || new Ctx(); if (actx.state === 'suspended') actx.resume();
+      var vol = clamp01(CONFIG.soundVolume), t0 = actx.currentTime, f0 = 1175;
+      [[1, 0.5, 0.5], [2, 0.2, 0.38], [3, 0.1, 0.26]].forEach(function (a) {
+        var o = actx.createOscillator(), g = actx.createGain();
+        o.type = 'sine'; o.frequency.value = f0 * a[0]; o.connect(g); g.connect(actx.destination);
+        g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(a[1] * vol, t0 + 0.005);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + a[2]); o.start(t0); o.stop(t0 + a[2] + 0.05);
+      });
+    } catch (e) {}
+  }
+  function clamp01(v) { v = Number(v); if (!(v >= 0)) return 0; if (v > 1) return 1; return v; }
+
+  function renderStatus() {
+    if (!CONFIG.showStatus || !els.status) return;
+    if (ownId) { els.status.className = 'ok'; els.status.textContent = '● ' + (ownName || ownId) + (myRole() ? ' / ' + myRole().toUpperCase() : ''); }
+    else { els.status.className = 'warn'; els.status.textContent = '⚠ 自キャラ未検出'; }
+  }
+  function renderDebug() {
+    if (!CONFIG.debug || !els.debug) return;
+    els.debug.textContent = 'log:' + diag.logLines + ' own:' + (ownId || '?') + '/' + (myRole() || '?') +
+      ' p4:' + state.active + ' GC:' + state.gcCount + '/' + state.gcDebuffSets +
+      ' tell(E/C):' + tf(state.tell.exdeath) + '/' + tf(state.tell.chaos) +
+      ' wound:' + (state.wound || '-') + ' dof:' + (state.dof || '-') +
+      ' live(i/t):' + tf(state.liveTruth.ice) + '/' + tf(state.liveTruth.thunder) +
+      ' spell:' + spellRows().map(function (r) { return r.label + tf(r.truth); }).join('/');
+  }
+  function tf(v) { return v == null ? '-' : (v ? 'T' : 'F'); }
+
+  // ===== デモ =====
+  function startDemo() {
+    setTimeout(function () {
+      if (!ownId) setOwn('10AAAAAA', '(DEMO)');
+      if (!ownRole) ownRole = 'dps';
+      begin();
+      state.gcCount = 3;
+      state.gcDebuffSets = 2;
+      state.tell.exdeath = true; state.tell.chaos = false;
+      state.wound = 'white'; state.dof = 'death';
+      var t = now();
+      state.steps.laser = { at: t + 8000, total: 8000, color: 'white', dir: 'left', id: 'C393' };
+      state.steps.short = { at: t + 16000, total: 16000, kind: 'fork', truth: true, bomb: null, mine: true };
+      state.steps.gaze1 = { at: t + 25000, total: 25000, truth: true, players: ['Demo A', 'Demo B'], mine: false };
+      state.steps.fire = { at: t + 36000, total: 36000, truth: true };
+      state.steps.long = { at: t + 41000, total: 41000, kind: null, truth: null, bomb: false, mine: true };
+      state.steps.gaze2 = { at: t + 49000, total: 49000, truth: false, players: ['Demo C'], mine: true };
+      state.steps.spell = { from: t, at: t + 50000, barAt: t + 55000, total: 55000,
+        bolt: { at: t + 50000, truth: false, elem: 'thunder' },
+        cone: { at: t + 55000, truth: true, elem: 'ice' } };
+      state.steps.water = { at: t + 60000, total: 60000, truth: false };
+      var iv = setInterval(function () { if (state && state.active) touch(); else clearInterval(iv); }, 5000);
+    }, 400);
+  }
+
+  O.dmp4 = {
+    init: init,
+    _config: CONFIG,
+    _state: function () { return state; },
+    _diag: diag,
+    _computeLaser: computeLaser,
+
+    _stepValue: stepValue,
+    _scene: scene,
+    _setRole: function (r) { ownRole = r; },
+    // 段数を実行中に切り替える (シミュレータ用)
+    _setRows: function (n) { CONFIG.rows = (n === 2 ? 2 : 1); applyRows(); lastGridH = 0; syncSize(); },
+    _panels: function () { return panels().map(function (P) { return { key: P.key, name: P.name }; }); },
+    _view: function () { return view; },
+    _role: function () { return myRole(); },
+  };
+})();

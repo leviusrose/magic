@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>絶妖星乱舞 P4 カンペ シミュレータ</title>
-<link rel="stylesheet" href="../dmp4/styles.css">
+<title>絶妖星乱舞 P3〜P4 カンペ シミュレータ (dm)</title>
+<link rel="stylesheet" href="../styles.css">
 <style>
-  /* ★ ../dmp4/styles.css は OverlayPlugin 用に html,body を
+  /* ★ ../styles.css (dm) は OverlayPlugin 用に html,body を
      height:100% / overflow:hidden / user-select:none にしている。
      ここは普通のページなので必ず戻す (戻さないとスマホでスクロールできず、
      下の操作パネルが見切れたまま触れなくなる)。
@@ -115,9 +115,9 @@
 </head>
 <body>
   <header>
-    <h1>🃏 絶妖星乱舞 P4 カンペ シミュレータ</h1>
+    <h1>🃏 絶妖星乱舞 P3〜P4 カンペ シミュレータ（dm）</h1>
     <span class="lead">
-      — <a href="../dmp4/">magic/dmp4</a> の本体をそのまま動かして P4 をイメトレするページ。
+      — <a href="../">magic/dm</a> の本体をそのまま動かして、P3 アルテマブラスター → P4 を通しでイメトレするページ（P4 は 30 秒から）。
       <b>ランダム</b>で真偽・自分のデバフ・傷の色を引き直します。
       タイムラインは cactbot 準拠で、<b>敵の詠唱・着弾・デバフ付与・自分が動く瞬間</b>を実時間で流します。
     </span>
@@ -161,10 +161,8 @@
           <button id="stop">■ 先頭へ</button>
         </div>
         <div class="row">
-          <label>版</label>
-          <select id="ver"><option value="dmp4">dmp4（8枚）</option><option value="dm">dm（6枚・実験）</option></select>
           <label>段数</label>
-          <select id="rows"><option value="1">1段（横長）</option><option value="2">2段</option></select>
+          <select id="rows"><option value="1">1段（横長）</option><option value="2">2段（3×2）</option></select>
           <label>速度</label>
           <select id="speed">
             <option value="1">等速</option>
@@ -200,15 +198,13 @@
 
   <!-- OverlayPluginApi を stub して legacy モードで即起動させる -->
   <script>window.OverlayPluginApi = { callHandler: function (j, cb) { if (cb) cb('null'); } };</script>
-  <!-- ?v=dm なら magic/dm (6 枚版) を、それ以外は magic/dmp4 を読む (中身の名前空間は同じ Overlay.dmp4) -->
-  <script>
-    window.SIM_VER = /[?&]v=dm(&|$)/.test(location.search) ? 'dm' : 'dmp4';
-    // dm は P3 アルテマブラスター (ultima.js) も読む
-    (window.SIM_VER === 'dm' ? ['api', 'geo', 'draw', 'ultima', 'dmp4'] : ['api', 'geo', 'draw', 'dmp4']).forEach(function (f) {
-      document.write('<script src="../' + window.SIM_VER + '/src/' + f + '.js"><\/script>');
-    });
-  </script>
-  <script src="timeline.js"></script>
+  <script src="../src/api.js"></script>
+  <script src="../src/geo.js"></script>
+  <script src="../src/draw.js"></script>
+  <script src="../src/ultima.js"></script>
+  <script src="../src/dmp4.js"></script>
+  <script src="../../p4-sim/timeline.js"></script>
+  <script src="p3.js"></script>
   <script>
   (function () {
     'use strict';
@@ -219,7 +215,7 @@
     O.api.start();
 
     var el = function (id) { return document.getElementById(id); };
-    var END = 120;                     // タイムラインの長さ(秒)
+    var END = NS.END;                  // タイムラインの長さ(秒)。P3 (0〜) + P4 (30〜)
     var PANEL_AR = 0.76;               // 図 1 枚の 幅/高さ (dmp4.js と揃える)
     var MIN_EVENTS = 150;              // イベント一覧に最低これだけ縦を残す
 
@@ -232,8 +228,8 @@
     function fitStage() {
       var rows = parseInt(el('rows').value, 10) === 2 ? 2 : 1;
       var stage = el('stage'), inner = el('mainInner'), main = el('main');
-      var n = O.dmp4._panels ? O.dmp4._panels().length : 8;   // dm は 6 枚
-      var cols = rows === 1 ? n : Math.ceil(n / 2);
+      // P3 の間は 1 枚だが、P4 の 6 枚が収まる大きさで固定する (切り替わっても枠が動かないように)
+      var cols = rows === 1 ? 6 : 3;
       var chrome = 4 + 2 * (cols - 1) + 2;        // #dm の padding + gap + 枠線
       var availW = main.clientWidth;
       var nowH = 26;
@@ -451,10 +447,6 @@
     el('role').onchange = function () { scn.role = this.value; rebuild(scn); };
     el('speed').onchange = paint;   // 速度は毎フレーム読むので付け替え不要
     el('rows').onchange = fitStage;
-    el('ver').value = window.SIM_VER;
-    el('ver').onchange = function () {
-      location.search = this.value === 'dm' ? '?v=dm' : '';
-    };
     el('toggleSpec').onclick = function () {
       var hidden = el('spec').classList.toggle('hidden');
       this.setAttribute('aria-pressed', String(hidden));
