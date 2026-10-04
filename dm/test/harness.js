@@ -821,7 +821,7 @@ console.log('34) 実際の範囲と設置位置 (実ログ 2026-10-02 と同じ�
   at34(1116); check('⑧ 着弾後も図のまま (パネルが薄くなるだけ)', scn('spell').kind === 'spellmap');
 }
 
-console.log('40) P3 アルテマブラスター → P4 で 6 枚に切り替え → ワイプで P3 に戻る');
+console.log('40) 戦闘外は 6 枚 (配置用) → 戦闘開始で P3 → P4 で 6 枚 → ワイプで 6 枚 (戦闘外)');
 {
   const U = O.dmUltima;
   const charge = (id, x, y) => ['22', 't', id, 'ケフカ', 'BAE3', 'アルテマブラスター', SELF, 'Self',
@@ -831,8 +831,10 @@ console.log('40) P3 アルテマブラスター → P4 で 6 枚に切り替え 
     '000014CF', '0', '8', '00'].join('|');
   const laser = (id) => `21|t|${id}|ケフカ|BAE4|アルテマブラスター|${SELF}|Self|0|0`;
   const dice = (icon) => `27|t|${SELF}|Self|0000|0000|${icon}|${SELF}|0000|0000`;
-  emit('260|t|0'); tick();
-  check('ワイプ後は P3 表示 (1 枚)', O.dmp4._view() === 'p3' && O.dmp4._panels().map((p) => p.key).join() === 'ultima', O.dmp4._view());
+  emit('260|t|0|0|1|1'); tick();
+  check('戦闘外は 6 枚 (背景を白くして配置するときに広さが見える)', O.dmp4._view() === 'p4' && O.dmp4._panels().length === 6, O.dmp4._view());
+  emit('260|t|1|0|1|0'); tick();
+  check('戦闘開始で P3 表示 (1 枚)', O.dmp4._view() === 'p3' && O.dmp4._panels().map((p) => p.key).join() === 'ultima', O.dmp4._view());
   check('待機中は一言なし (半透明のまま)', val('ultima') == null);
   check('待機中は位置なし', scn('ultima').spots.length === 0 && !scn('ultima').known);
   emit(charge('40002CE5', 80, 100));                  // 1 本目 = 西エッジ → 突入先 東
@@ -851,9 +853,16 @@ console.log('40) P3 アルテマブラスター → P4 で 6 枚に切り替え 
   check('解決 4 秒後に済み (薄くなる)', U.done());
   emit(cast('4000AAAA', 'ケフカ', 'C2DC', 'おちょくりソウル', '5.000'));
   check('P4 開始で 6 枚に切り替え', O.dmp4._view() === 'p4' && O.dmp4._panels().length === 6);
-  emit('260|t|0'); tick();
-  check('ワイプで P3 に戻る', O.dmp4._view() === 'p3');
+  emit('260|t|1|1|0|1'); tick();
+  check('P4 中に戦闘フラグが来ても P3 に戻らない', O.dmp4._view() === 'p4');
+  emit('260|t|0|0|1|1'); tick();
+  check('ワイプで 6 枚 (戦闘外) に戻る', O.dmp4._view() === 'p4' && !st().active);
   check('P3 の状態も消える', scn('ultima').spots.length === 0 && val('ultima') == null);
+  // 戦闘中に読み込み直した (260 の開始を取りこぼした) 場合: 突入が来たら P3 にする
+  emit(charge('40002CF5', 80, 100));
+  check('突入が来たら P3 表示に切り替わる', O.dmp4._view() === 'p3');
+  emit('01|t|0|Zone'); tick();
+  check('ゾーン移動で 6 枚 (戦闘外) に戻る', O.dmp4._view() === 'p4');
 }
 
 console.log(`\n結果: ${pass} pass / ${fail} fail`);

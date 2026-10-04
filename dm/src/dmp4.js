@@ -5,8 +5,10 @@
 // 炎/水 (カオス) もケフカの攻撃 (見えている予兆) も赤。④⑤ の一言は「設置→散開」の形、⑦⑧ は図の中央に答えの文字を出さない。
 //
 // ■ P3 → P4 の自動切り替え
-//   P3 の間は「アルテマブラスター」の 1 枚 (src/ultima.js = magic/ultimablaster の判定) を出し、
-//   P4 開始 (おちょくりソウル C2DC) で 6 枚に切り替える。戦闘終了 (ワイプ/撃破)・ゾーン移動で P3 に戻す。
+//   戦闘外 (読み込み直後・ワイプ後) は P4 の 6 枚を半透明で並べておく
+//     (OverlayPlugin で背景を白くして配置するとき、6 枚がどこまで広がるかが見えるように)。
+//   戦闘開始 (260 の ACT 戦闘フラグ = 1) で P3「アルテマブラスター」の 1 枚 (src/ultima.js) に切り替え、
+//   P4 開始 (おちょくりソウル C2DC) で 6 枚に戻す。戦闘中に読み込み直したときも、突入/番号が来れば P3 になる。
 //   どちらも待機中は半透明、動いている間は光る (P4 のパネルと同じ)。
 //
 // ■ 真偽(本当/嘘)の判定
@@ -182,7 +184,7 @@
     { key: 'gaze2', name: '⑥ 視線2' },
     { key: 'ws', name: '⑦⑧ つなみ→アウト' },
   ];
-  var view = 'p3';     // 'p3' | 'p4'。今どちらのパネルを並べているか
+  var view = 'p4';     // 'p3' | 'p4'。今どちらのパネルを並べているか (戦闘外は 6 枚 = 配置用)
   function panels() { return view === 'p4' ? PANELS : PANELS_P3; }
   function UB() { return O.dmUltima; }
   function setView(v) {
@@ -316,12 +318,20 @@
     var p = e.line || [];
     diag.logLines++;
     if (ownId == null) tryBootstrap(p);
-    if (UB()) UB().onLogLine(p);      // P3 アルテマブラスターの判定にも流す
+    if (UB()) {
+      UB().onLogLine(p);                // P3 アルテマブラスターの判定にも流す
+      // 戦闘中に読み込み直した場合など: P4 が始まっていなければ、突入/番号が来た時点で P3 表示にする
+      if (view !== 'p3' && !state.active && UB()._state().active) setView('p3');
+    }
     switch (p[0]) {
       case '02': setOwn(p[2], p[3]); break;
       case '03': onAddCombatant(p); break;
-      case '01': jobById = {}; reset('ゾーン移動'); backToP3(); break;
-      case '260': if (p[2] === '0') { reset('戦闘終了'); backToP3(); } break;
+      case '01': jobById = {}; reset('ゾーン移動'); toIdle(); break;
+      // 260|t|ACT戦闘中|ゲーム戦闘中|… : 開始 = P3 の 1 枚 / 終了 (ワイプ/撃破) = 配置用に 6 枚へ戻す
+      case '260':
+        if (p[2] === '0') { reset('戦闘終了'); toIdle(); }
+        else if (p[2] === '1' && !state.active) setView('p3');
+        break;
       case '20': onCast(p); break;
       case '263': onCastExtra(p); break;
       case '21': case '22': onAbility(p); break;
@@ -363,10 +373,10 @@
     console.log('[dmp4] P4 開始');
     setView('p4');
   }
-  // ワイプ/撃破/ゾーン移動 → 次の挑戦は P3 から見る
-  function backToP3() {
+  // ワイプ/撃破/ゾーン移動 → 戦闘外は 6 枚 (配置用)。次の戦闘開始で P3 になる
+  function toIdle() {
     if (UB()) UB().reset();
-    setView('p3');
+    setView('p4');
   }
 
   // ===== 詠唱開始 (type 20) =====
@@ -1183,7 +1193,7 @@
       els.nowMain.className = ulive ? (ut ? 'go' : 'wait') : 'idle';
       els.nowSub.textContent = '';
     } else if (!live) {
-      els.nowMain.textContent = 'P4 待機';
+      els.nowMain.textContent = 'P3/P4 待機';
       els.nowMain.className = 'idle';
       els.nowSub.textContent = '';
     } else if (cur && cur.val != null) {
