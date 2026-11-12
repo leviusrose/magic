@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>FFXIV 絶ケフカ P3 アルテマブラスター サイコロ カンペ</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="ub-debug" style="display:none">booting…</div>
+
+  <div id="ub">
+    <!-- ミニ図 (メイン) -->
+    <canvas id="ub-arena" width="360" height="360"></canvas>
+
+    <!-- テキスト HUD -->
+    <div id="ub-hud">
+      <div id="ub-head" class="ub-head">アルテマブラスター待機</div>
+      <div id="ub-self" class="ub-self"></div>
+    </div>
+  </div>
+
+  <div id="ub-status"></div>
+
+  <script src="src/api.js"></script>
+  <script src="src/ultimablaster.js"></script>
+  <script src="src/main.js"></script>
+</body>
+</html>
